@@ -870,10 +870,219 @@ const PFG = (() => {
       $('final-time').textContent = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
       $('final-names').textContent = FOLK.map((f) => f.kind).join(', ');
       card.classList.remove('hidden');
+      refreshShare();
     });
   }
   const shuffle = $('shuffle'); if (shuffle) shuffle.addEventListener('click', () => { location.href = location.pathname + '?seed=' + (SEED % 999 + 1) + (GQ.get('tier') ? '&tier=' + GQ.get('tier') : ''); });   // an explicit ?tier= follows the shuffle
   const stay = $('stay'); if (stay) stay.addEventListener('click', () => { const card = $('endcard'); if (card) card.classList.add('hidden'); });
+
+  // the share card. A 1080 square PNG printed from the same paper: cream stock, a procedurally torn edge, an ink
+  // neatline, the run time huge, eight little paper tokens and one small rust/gold rule. Generated on demand (the end
+  // card and the first share press), cached as a Blob, and exposed only as an object URL — a data URL is never stored
+  // or attached to the page. Sharing is Web Share + plain intents: no backend, no trackers, no third-party script.
+  const SHARE_URL = 'https://play.buildquietly.com/games/paperfolk/?ref=share';
+  const SHARE_FILE = 'paperfolk-run.png';
+  let shareBlob = null, shareUrl = '', shareKey = '';
+  const shareInk = (a) => 'rgba(58, 36, 18, ' + a + ')';
+  const shareRng = (seed) => { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; };
+  function shareTorn(x, y, w, h, amp, rnd) {
+    const pts = [];
+    const side = (x0, y0, x1, y1, nx, ny, n) => {
+      for (let i = 0; i < n; i++) {
+        const u = i / n;
+        const deep = rnd() < .09 ? (rnd() - .34) * amp * 1.7 : 0;
+        const j = (rnd() - .5) * amp * 1.15 + Math.sin(i * 2.1) * amp * .22 + deep;
+        pts.push([x0 + (x1 - x0) * u + nx * j, y0 + (y1 - y0) * u + ny * j]);
+      }
+    };
+    side(x, y, x + w, y, 0, -1, 46);
+    side(x + w, y, x + w, y + h, 1, 0, 46);
+    side(x + w, y + h, x, y + h, 0, 1, 46);
+    side(x, y + h, x, y, -1, 0, 46);
+    return pts;
+  }
+  function shareTrace(g, pts) {
+    g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+    g.closePath();
+  }
+  function shareSpaced(g, text, x, y, font, gap) {
+    g.font = font; g.textAlign = 'left';
+    let total = -gap;
+    for (const ch of text) total += g.measureText(ch).width + gap;
+    let cx = x - total / 2;
+    for (const ch of text) { g.fillText(ch, cx, y); cx += g.measureText(ch).width + gap; }
+    g.textAlign = 'center';
+  }
+  function shareTime() {
+    const el = document.getElementById('final-time');
+    return el && el.textContent ? el.textContent : '0:00';
+  }
+  function drawShareCard(time) {
+    const cv = document.createElement('canvas');
+    cv.width = 1080; cv.height = 1080;
+    const g = cv.getContext('2d');
+    if (!g) return null;
+    const W = 1080, INK = '#3a2412', CREAM = '#f6ecd4', RUST = '#c9542b', GOLD = '#d9a03a', SAGE = '#86a07f', TEAL = '#46aa9e', GROUND = '#cfc4a1';
+    const rnd = shareRng((0x9e3779b9 ^ (time.length * 2654435761) ^ (time.charCodeAt(0) * 40503) ^ (time.charCodeAt(time.length - 1) * 97)) >>> 0);
+    g.fillStyle = GROUND; g.fillRect(0, 0, W, W);
+    for (let i = 0; i < 240; i++) {   // meadow flecks on the backing sheet
+      g.fillStyle = i % 2 ? 'rgba(58,36,18,.06)' : 'rgba(214,184,108,.14)';
+      g.fillRect(rnd() * W, rnd() * W, 1.5 + rnd() * 3, 1.5 + rnd() * 3);
+    }
+    const pts = shareTorn(56, 56, 968, 968, 13, rnd);
+    g.save();   // the card itself, with one soft paper shadow — no glow
+    g.shadowColor = shareInk(.36); g.shadowBlur = 26; g.shadowOffsetY = 11;
+    g.fillStyle = CREAM; shareTrace(g, pts); g.fill();
+    g.restore();
+    g.save(); shareTrace(g, pts); g.strokeStyle = 'rgba(243,230,198,.9)'; g.lineWidth = 3; g.stroke(); g.restore();
+    g.save(); shareTrace(g, pts); g.clip();
+    g.fillStyle = CREAM; g.fillRect(0, 0, W, W);
+    g.lineCap = 'round';   // short ochre/ink fibres, then a fine dust of print grain
+    for (let i = 0; i < 150; i++) {
+      const x = rnd() * W, y = rnd() * W, l = 8 + rnd() * 26, a = (rnd() - .5) * .7;
+      g.strokeStyle = i % 3 ? 'rgba(168,104,58,.10)' : 'rgba(58,36,18,.05)';
+      g.lineWidth = .8 + rnd() * 1.1;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+    }
+    for (let i = 0; i < 1100; i++) {
+      g.fillStyle = i % 3 ? 'rgba(58,36,18,.03)' : 'rgba(255,248,228,.10)';
+      g.fillRect(rnd() * W, rnd() * W, .8 + rnd() * 1.6, .8 + rnd() * 1.6);
+    }
+    g.restore();
+    g.strokeStyle = shareInk(.5); g.lineWidth = 2; g.strokeRect(112, 112, 856, 856);   // the neatline, doubled thin
+    g.strokeStyle = shareInk(.2); g.lineWidth = 1; g.strokeRect(126, 126, 828, 828);
+    g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = INK;
+    shareSpaced(g, 'A POP-UP HIDDEN-OBJECT GAME', 540, 208, '600 22px Georgia, "Times New Roman", serif', 5.5);
+    shareSpaced(g, 'PAPERFOLK', 540, 322, '600 100px Georgia, "Times New Roman", serif', 12);
+    g.fillStyle = RUST; g.fillRect(482, 351, 42, 5);
+    g.fillStyle = GOLD; g.fillRect(530, 351, 68, 5);
+    g.fillStyle = INK; g.font = 'italic 264px Georgia, "Times New Roman", serif';
+    g.fillText(time, 540, 634);
+    g.font = 'italic 38px Georgia, "Times New Roman", serif';
+    g.fillText('all eight folk found', 540, 730);
+    const cols = [RUST, GOLD, SAGE, TEAL], start = 540 - (8 * 26 + 7 * 13) / 2;
+    for (let i = 0; i < 8; i++) {
+      const x = start + i * 39;
+      g.save(); g.translate(x + 13, 780); g.rotate((i % 2 ? -1 : 1) * .035);
+      g.fillStyle = cols[i % cols.length]; g.fillRect(-13, 0, 26, 34);
+      g.strokeStyle = shareInk(.35); g.lineWidth = 1; g.strokeRect(-13, 0, 26, 34);
+      g.restore();
+    }
+    g.strokeStyle = shareInk(.25); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(390, 842); g.lineTo(690, 842); g.stroke();
+    g.fillStyle = shareInk(.72);
+    shareSpaced(g, 'play.buildquietly.com', 540, 918, '600 26px Georgia, "Times New Roman", serif', 3.2);
+    return cv;
+  }
+  function shareDataBlob(dataUrl) {
+    const comma = dataUrl.indexOf(','), bin = atob(dataUrl.slice(comma + 1));
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return new Blob([u8], { type: 'image/png' });
+  }
+  function shareKeyNow() { return shareTime(); }
+  function buildCard() {
+    try {
+      const cv = drawShareCard(shareTime());
+      if (!cv) return null;
+      // transient PNG encode: the string lives only in this function; the page keeps the Blob and its object URL.
+      const blob = shareDataBlob(cv.toDataURL('image/png'));
+      if (shareUrl) { try { URL.revokeObjectURL(shareUrl); } catch (e) { /* an old page may refuse */ } }
+      shareBlob = blob; shareUrl = URL.createObjectURL(blob); shareKey = shareKeyNow();
+      return blob;
+    } catch (e) { return null; }
+  }
+  function getShareBlob() { return shareBlob && shareKey === shareKeyNow() ? shareBlob : buildCard(); }
+  function shareCaption() { return 'I found all 8 paperfolk in ' + shareTime() + '. Can you?'; }
+  function paintShareLinks() {
+    const t = shareCaption(), u = SHARE_URL;
+    const x = $('share-x'), wa = $('share-wa'), tg = $('share-tg');
+    if (x) x.href = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(t) + '&url=' + encodeURIComponent(u);
+    if (wa) wa.href = 'https://wa.me/?text=' + encodeURIComponent(t + ' ' + u);
+    if (tg) tg.href = 'https://t.me/share/url?url=' + encodeURIComponent(u) + '&text=' + encodeURIComponent(t);
+  }
+  function refreshShare() { paintShareLinks(); if (!shareBlob || shareKey !== shareKeyNow()) buildCard(); }
+  function nativeShareCard(blob) {
+    if (typeof navigator.share !== 'function') return Promise.resolve(false);
+    const text = shareCaption(), url = SHARE_URL, title = 'Paperfolk';
+    let file = null;
+    try { if (blob) file = new File([blob], SHARE_FILE, { type: 'image/png' }); } catch (e) { file = null; }
+    const payload = { title, text, url };
+    let canFiles = false;
+    try { canFiles = !!(file && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })); } catch (e) { canFiles = false; }
+    return (async () => {
+      try {
+        if (canFiles) { await navigator.share({ files: [file], title, text, url }); return true; }
+        await navigator.share(payload); return true;
+      } catch (err) {
+        if (err && err.name === 'AbortError') return true;   // the player closed the sheet: say nothing
+        if (canFiles) {
+          try { await navigator.share(payload); return true; }
+          catch (e2) { if (e2 && e2.name === 'AbortError') return true; }
+        }
+        return false;
+      }
+    })();
+  }
+  function downloadShareCard(blob) {
+    if (!blob) return false;
+    const href = shareUrl || URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = href; a.download = SHARE_FILE; a.style.display = 'none';
+    document.body.appendChild(a);
+    try { a.click(); } catch (e) { /* a very strict page may refuse */ }
+    a.remove();
+    return true;
+  }
+  function legacyCopy(text) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+      document.body.appendChild(ta);
+      ta.select(); ta.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return !!ok;
+    } catch (e) { return false; }
+  }
+  async function copyShareCaption(silent) {
+    const text = shareCaption();
+    let ok = false;
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); ok = true; } } catch (e) { ok = false; }
+    if (!ok) ok = legacyCopy(text);
+    if (!silent) toast(ok ? 'caption copied' : 'the caption could not be copied');
+    return ok;
+  }
+  const shareBtn = $('share-score');
+  if (shareBtn) shareBtn.addEventListener('click', async () => {
+    const blob = getShareBlob();
+    if (await nativeShareCard(blob)) return;
+    downloadShareCard(blob);
+    await copyShareCaption(true);
+    toast('the card is saved and the caption copied \u2014 post it where you like');
+  });
+  const shareIg = $('share-ig');
+  if (shareIg) shareIg.addEventListener('click', async () => {
+    const blob = getShareBlob();
+    if (typeof navigator.share === 'function' && await nativeShareCard(blob)) return;
+    downloadShareCard(blob);
+    await copyShareCaption(true);
+    toast('the card is saved and the caption copied \u2014 post it on Instagram');
+  });
+  const shareCopy = $('share-copy');
+  if (shareCopy) shareCopy.addEventListener('click', () => { copyShareCaption(false); });
+  const paperShare = {
+    get text() { return shareCaption(); },
+    get url() { return SHARE_URL; },
+    get cardBytes() { return shareBlob ? shareBlob.size : 0; },
+    get canNative() { return typeof navigator.share === 'function'; },
+    get cardUrl() { return shareUrl; },
+    buildCard,
+  };
+  window.__paperShare = paperShare;
+  paintShareLinks();
 
   // the test hook (?probe or window.__paperfolk): positions, screen places, visibility and synthetic clicks.
   // The frame can be letterboxed (?size on a narrow window): every screen<->pixel mapping goes through the canvas

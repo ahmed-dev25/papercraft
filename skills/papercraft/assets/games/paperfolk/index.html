@@ -83,7 +83,7 @@
     background: var(--core); color: var(--ink); border: 1px solid rgba(90, 58, 40, .45);
     box-shadow: 0 2px 4px var(--shadow), 0 10px 22px -6px var(--shadow);
     font: italic 14px/1.4 Georgia, serif; padding: 8px 18px;
-    opacity: 0; transition: opacity .4s ease, transform .4s ease; pointer-events: none;
+    opacity: 0; transition: opacity .4s ease, transform .4s ease; pointer-events: none; z-index: 70;
     clip-path: polygon(0 10%, 2% 0, 98% 3%, 100% 12%, 99% 92%, 97% 100%, 3% 97%, 1% 88%);
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -114,6 +114,20 @@
     clip-path: polygon(0 8%, 3% 0, 97% 2%, 100% 10%, 99% 93%, 96% 100%, 4% 98%, 1% 90%);
   }
   #endcard button:hover { transform: translateY(-1px); }
+
+  /* the share strip: the same cut paper as the card, ink underlines, no logos or brand marks */
+  #endcard .share { margin: 16px 0 0; padding-top: 13px; border-top: 1px solid rgba(90, 58, 40, .22); }
+  #endcard .share-primary { display: block; width: 100%; margin: 0; letter-spacing: .12em; }
+  #endcard .share-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0 18px; margin: 5px 0 0; }
+  #endcard .share-links a, #endcard .share-links button {
+    display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 1px; margin: 0;
+    background: none; border: 0; box-shadow: none; clip-path: none; color: rgba(90, 58, 40, .76);
+    font: italic 13px/1 Georgia, 'Times New Roman', serif; letter-spacing: .02em; text-transform: none;
+    text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: rgba(90, 58, 40, .42);
+    cursor: pointer; touch-action: manipulation;
+  }
+  #endcard .share-links a:hover, #endcard .share-links button:hover { color: var(--ink); text-decoration-color: var(--ink); transform: none; }
+  #endcard .share-links a:focus-visible, #endcard .share-links button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
   /* the paper "how to play" card: cream, ink, a torn edge and a small neatline (the HUD's language); the ? tab in the
      top-right corner stays, and brings it back at any time */
@@ -184,8 +198,15 @@
   html.pf-mobile #help-tab { top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; width: 44px; height: 46px; font-size: 18px; touch-action: manipulation; }
   html.pf-mobile #hint-tab { top: calc(64px + env(safe-area-inset-top, 0px)); right: 12px; width: 46px; height: 44px; font-size: 11px; touch-action: manipulation; }
   html.pf-mobile #toast { top: calc(14px + env(safe-area-inset-top, 0px)); max-width: 88vw; }
-  html.pf-mobile #endcard .sheet { max-width: 90vw; }
   html.pf-mobile #endcard button { min-height: 44px; touch-action: manipulation; }
+  html.pf-mobile #endcard .sheet {
+    max-width: 90vw;
+    max-height: calc(100vh - 28px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    max-height: calc(100dvh - 28px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  }
+  html.pf-mobile #endcard .share-links { gap: 0 14px; }
+  html.pf-mobile #endcard .share-links a, html.pf-mobile #endcard .share-links button { min-height: 44px; font-size: 13px; }
 </style>
 <!-- three r187 vendored into assets/vendor/ (needs its sibling three.core.js); "papercraft/" points at the assets root -->
 <script type="importmap">{ "imports": { "three": "../../vendor/three.module.js", "papercraft/": "../../" } }</script>
@@ -290,6 +311,16 @@
     <div class="time" id="final-time">0:00</div>
     <button id="shuffle">shuffle the folk</button>
     <button id="stay">stay a while</button>
+    <div class="share" id="share" role="group" aria-label="share your run">
+      <button id="share-score" class="share-primary" type="button">share your run</button>
+      <div class="share-links">
+        <a id="share-x" href="#" target="_blank" rel="noopener noreferrer">X</a>
+        <a id="share-wa" href="#" target="_blank" rel="noopener noreferrer">WhatsApp</a>
+        <a id="share-tg" href="#" target="_blank" rel="noopener noreferrer">Telegram</a>
+        <button id="share-ig" type="button">Instagram</button>
+        <button id="share-copy" type="button">copy caption</button>
+      </div>
+    </div>
   </div>
 </div>
 <script type="module" src="./game.js"></script>

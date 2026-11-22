@@ -90,7 +90,7 @@
     background: var(--core); color: var(--ink); border: 1px solid rgba(51, 33, 29, .45);
     box-shadow: 0 2px 4px var(--shadow), 0 10px 22px -6px var(--shadow);
     font: italic 13px/1.4 Georgia, serif; padding: 7px 16px;
-    opacity: 0; transition: opacity .4s ease, transform .4s ease; pointer-events: none; z-index: 40;
+    opacity: 0; transition: opacity .4s ease, transform .4s ease; pointer-events: none; z-index: 70;
     clip-path: polygon(0 10%, 2% 0, 98% 3%, 100% 12%, 99% 92%, 97% 100%, 3% 97%, 1% 88%);
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -158,6 +158,20 @@
   #endcard button:hover { transform: translateY(-1px); }
   #endcard button:active { transform: translate(1px, 2px); box-shadow: 0 1px 0 var(--core), 1px 1px 1px var(--shadow); }
 
+  /* the share strip: the same cut paper as the card, ink underlines, no logos or brand marks */
+  #endcard .share { margin: 16px 0 0; padding-top: 13px; border-top: 1px solid rgba(51, 33, 29, .22); }
+  #endcard .share-primary { display: block; width: 100%; margin: 0; letter-spacing: .12em; }
+  #endcard .share-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0 18px; margin: 5px 0 0; }
+  #endcard .share-links a, #endcard .share-links button {
+    display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 1px; margin: 0;
+    background: none; border: 0; box-shadow: none; clip-path: none; color: rgba(51, 33, 29, .76);
+    font: italic 13px/1 Georgia, 'Times New Roman', serif; letter-spacing: .02em; text-transform: none;
+    text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: rgba(51, 33, 29, .42);
+    cursor: pointer; touch-action: manipulation;
+  }
+  #endcard .share-links a:hover, #endcard .share-links button:hover { color: var(--ink); text-decoration-color: var(--ink); transform: none; }
+  #endcard .share-links a:focus-visible, #endcard .share-links button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
   body.has-debug #help { top: 190px; }
   body.has-debug #scorecard { top: 166px; }
   @media (max-width: 900px) {
@@ -182,7 +196,13 @@
   /* the two paper tabs: at least 40x44 CSS px of touch, never a double-tap zoom of the layout */
   html.pf-mobile #help-tab { top: calc(36px + env(safe-area-inset-top, 0px)); right: 10px; width: 44px; height: 46px; font-size: 18px; touch-action: manipulation; }
   html.pf-mobile #endcard button { min-height: 44px; touch-action: manipulation; }
-  html.pf-mobile #endcard .sheet { max-width: 90vw; }
+  html.pf-mobile #endcard .sheet {
+    max-width: 90vw; max-height: calc(100vh - 28px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    max-height: calc(100dvh - 28px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  }
+  html.pf-mobile #endcard .share-links { gap: 0 14px; }
+  html.pf-mobile #endcard .share-links a, html.pf-mobile #endcard .share-links button { min-height: 44px; font-size: 13px; }
 
   /* the corner muzzle: a small torn paper flash, shown only when the toy gun itself is hidden (a narrow phone) — the
      shot still leaves the same place and still reads as paper. */
@@ -313,6 +333,16 @@
     <div class="rows"><div>best <b id="final-best">0</b></div><div>longest streak <b id="final-streak">0</b></div></div>
     <div class="prizes" id="final-prizes"></div>
     <button id="again">shoot again</button>
+    <div class="share" id="share" role="group" aria-label="share your score">
+      <button id="share-score" class="share-primary" type="button">share your score</button>
+      <div class="share-links">
+        <a id="share-x" href="#" target="_blank" rel="noopener noreferrer">X</a>
+        <a id="share-wa" href="#" target="_blank" rel="noopener noreferrer">WhatsApp</a>
+        <a id="share-tg" href="#" target="_blank" rel="noopener noreferrer">Telegram</a>
+        <button id="share-ig" type="button">Instagram</button>
+        <button id="share-copy" type="button">copy caption</button>
+      </div>
+    </div>
   </div>
 </div>
 <script type="module" src="./game.js"></script>
