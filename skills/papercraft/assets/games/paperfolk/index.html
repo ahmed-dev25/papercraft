@@ -119,7 +119,8 @@
     function say(msg) { if (sheet) sheet.textContent = msg; }
     try {
       if (!document.createElement('canvas').getContext('webgl2')) {
-        say('this browser cannot open the 3D paper world (WebGL2 is unavailable) — reloading will not help; the 2D edition is being prepared');
+        say('this browser cannot open the 3D paper world (WebGL2 is unavailable) — opening the 2D edition');
+        setTimeout(function () { location.replace('../paperfolk-2d/' + location.search); }, 900);
       }
     } catch (e) { say('this browser blocked the 3D check: ' + e.message); }
     window.addEventListener('error', function (e) {
