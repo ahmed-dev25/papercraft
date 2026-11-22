@@ -12,7 +12,8 @@
           color: #fff6e4; opacity: .85; letter-spacing: .03em; pointer-events: none; text-shadow: 0 1px 3px #5a3a20; }
 </style>
 <!-- "papercraft/" points at the folder that holds lib/ (and examples/): in your own project, wherever you copied them -->
-<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js", "papercraft/": "../../" } }</script>
+<!-- three r187 vendored into assets/vendor/ so the deploy is self-contained (no CDN); three.module.js needs its sibling three.core.js -->
+<script type="importmap">{ "imports": { "three": "../../vendor/three.module.js", "papercraft/": "../../" } }</script>
 </head>
 <body>
 <div class="hint" id="hint">arrows / WASD to walk - click to fold the world flat - drag to look around</div>

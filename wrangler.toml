@@ -1,0 +1,6 @@
+# Cloudflare Pages: pure static hosting, no Workers, no Functions, no build step.
+# Deploy from the dashboard (connect the repo, output dir = skills/papercraft/assets)
+# or from a checkout with:  npx wrangler pages deploy
+name = "papercraft"
+compatibility_date = "2026-11-22"
+pages_build_output_dir = "skills/papercraft/assets"

@@ -85,6 +85,23 @@ see another format. For review frames, `python skills/papercraft/scripts/capture
 cards cut into each other and any page error; `--size reel "clip:video=8,30"` renders a vertical clip and encodes the
 MP4.
 
+## Deploy (static hosting, no backend, no cost)
+
+The whole thing is static files: no build step, no server code. To host it on Cloudflare Pages (free tier, no
+Workers involved):
+
+1. Cloudflare dashboard → **Workers & Pages → Create → Pages → Connect to Git** → pick this fork.
+2. Production branch `main`, Framework preset **None**, Build command **empty**, Build output directory
+   `skills/papercraft/assets`.
+3. Deploy. The templates land at `/templates/popup-3d/`, `/templates/popup-2d/` and the sampler at
+   `/templates/popup-3d/structures.html`, with a paper landing page at `/`.
+
+Or straight from a checkout: `npx wrangler pages deploy` (uses `wrangler.toml`).
+
+three.js r187 is vendored into `skills/papercraft/assets/vendor/` so the deploy is self-contained; the 2D
+template has no dependencies at all. Swap the import map back to the CDN if you prefer. ES modules mean the
+pages need to be served over http (Pages, `npx serve`, `python -m http.server`), not opened from `file://`.
+
 ## License
 
 MIT
