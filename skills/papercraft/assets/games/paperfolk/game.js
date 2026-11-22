@@ -23,11 +23,12 @@ const TIER = (() => {
   if ((cores >= 1 && cores <= 4) || (dm !== undefined && dm <= 8)) return 'med';
   return 'high';   // missing or out-of-range readings (0, undefined, spoofed huge) are no signal
 })();
-const Q = {
+const TIERS = {
   high: { dpr: 2, shadow: 4096, msaa: 4, taps: 40, fallers: 60, flyers: 8, clouds: 4 },   // the kit's own defaults
   med: { dpr: 1.25, shadow: 2048, msaa: 2, taps: 24, fallers: 36, flyers: 5, clouds: 2 },
   low: { dpr: 1, shadow: 1024, msaa: 0, taps: 16, fallers: 20, flyers: 3, clouds: 1 },
-}[TIER];
+};
+const Q = TIERS[TIER];
 const PF_LIFE = [];   // the ambient kinds a live tier step-down can thin at runtime: [kind, Q key] pairs (section 6)
 
 // ---- 1. palette: THIS WORLD'S ONLY (autumn countryside: warm orange / rust / ochre lead; sage, teal and cream
@@ -827,8 +828,9 @@ H.start();
     if (dt < SETTLE + WATCH) { requestAnimationFrame(sample); return; }
     if (n >= 10 && n / ((dt - SETTLE) / 1000) < FLOOR) {          // under the floor for the whole window: step down once
       done = true;
-      H.setQuality(Q[next]);
-      for (const [k, key] of PF_LIFE) { const f = Q[next][key] / Q[TIER][key]; k.day = (k.day ?? 1) * f; k.night = (k.night ?? 1) * f; }
+      if (!TIERS[next]) return;
+      H.setQuality(TIERS[next]);
+      for (const [k, key] of PF_LIFE) { const f = TIERS[next][key] / TIERS[TIER][key]; k.day = (k.day ?? 1) * f; k.night = (k.night ?? 1) * f; }
       window.__paperfolk?.toast('a lighter print, for a smoother page');
       return;
     }

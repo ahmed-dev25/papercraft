@@ -41,13 +41,16 @@
   #hint.fade { opacity: 0; }
 
   #hud {
-    position: fixed; left: 18px; bottom: 18px; display: flex; align-items: center; gap: 10px;
+    position: fixed; left: 18px; bottom: 18px; display: flex; align-items: center; gap: 10px; z-index: 30;
+    background: var(--core); border: 1px solid rgba(90, 58, 40, .6); padding: 7px 12px;
+    box-shadow: 0 2px 4px var(--shadow), 0 10px 22px -6px var(--shadow);
+    clip-path: polygon(0 10%, 2% 0, 98% 3%, 100% 12%, 99% 90%, 97% 100%, 3% 97%, 1% 88%);
     pointer-events: none;
   }
   #folk-tokens { display: flex; gap: 6px; }
   .token {
-    width: 22px; height: 28px; border: 1px solid rgba(90, 58, 40, .5);
-    background: var(--core); box-shadow: 0 1px 2px var(--shadow), inset 0 0 0 1px rgba(251, 246, 234, .8);
+    width: 22px; height: 28px; border: 1px solid rgba(90, 58, 40, .55);
+    background: var(--page); box-shadow: inset 0 0 0 1px rgba(251, 246, 234, .8);
     clip-path: polygon(0 6%, 4% 0, 96% 2%, 100% 8%, 99% 94%, 95% 100%, 5% 98%, 1% 93%);
     transition: background .35s ease, transform .35s ease;
   }
@@ -55,8 +58,7 @@
   .token.found { background: var(--base); transform: translateY(-3px); }
 
   #count {
-    font: 13px/1 Georgia, serif; letter-spacing: .08em; color: #fff6e4;
-    text-shadow: 0 1px 3px #5a3a20; padding-left: 4px;
+    font: 13px/1 Georgia, serif; letter-spacing: .08em; color: var(--ink); padding-left: 4px;
   }
 
   #toast {
@@ -128,6 +130,27 @@
     window.addEventListener('unhandledrejection', function (e) {
       say('the world hit a snag while printing: ' + (e && e.reason && e.reason.message ? e.reason.message : 'unknown snag'));
     });
+    // ?debug: a plain-text readout of what the page sees, readable without any console
+    if (/[?&]debug/.test(location.search)) {
+      var gl = null; try { gl = !!document.createElement('canvas').getContext('webgl2'); } catch (e2) { gl = false; }
+      var errText = 'none';
+      window.addEventListener('error', function (e) { errText = (e && e.message) || 'unknown'; }, true);
+      var box = document.createElement('div');
+      box.id = 'pf-debug';
+      box.style.cssText = 'position:fixed;left:10px;top:10px;z-index:99;background:#fbf6ea;color:#5a3a28;border:1.5px solid #5a3a28;padding:10px 14px;font:13px/1.6 Consolas,monospace;max-width:80vw;box-shadow:0 2px 10px rgba(0,0,0,.35)';
+      document.body.appendChild(box);
+      setInterval(function () {
+        var cv = document.querySelector('canvas');
+        box.innerHTML =
+          'webgl2: ' + gl +
+          '<br>module: ' + (window.__paperfolk ? 'loaded (v' + window.__paperfolk.ver + ')' : 'NOT loaded') +
+          '<br>canvas: ' + (cv ? cv.width + 'x' + cv.height : 'none') +
+          '<br>tokens: ' + document.querySelectorAll('.token.found').length + ' found / ' + document.querySelectorAll('.token').length +
+          '<br>loading note: ' + (document.getElementById('loading') ? 'still up' : 'removed') +
+          '<br>error: ' + errText +
+          '<br>url: ' + location.search;
+      }, 700);
+    }
   })();
 </script>
 <div id="hint">eight paperfolk hide in the world — click one to greet it<br>click the empty page to fold it flat and back again</div>
