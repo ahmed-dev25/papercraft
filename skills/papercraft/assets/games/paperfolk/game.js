@@ -16,6 +16,9 @@ import { createHarness } from './harness.js';
 // it false, so its camera, scales, HUD and copy are byte-for-byte the authored ones.
 const MOBILE = matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, innerHeight) < 620;
 const PORTRAIT = innerHeight >= innerWidth;
+// the round's win goal: five of the eight folk. All eight stay in the world; the three left over are the end card's
+// "three more still hide — find them all?" teaser. Same goal on desktop and mobile.
+const GOAL = 5;
 // the harness's portrait view (66 units, 1.33x lens) reads the smallest folk at ~29 CSS px on a 390 px screen (the starter
 // at ~63); 58 (+12% closer) lifts that to ~34 and ~73, and the 1.3x folk scale keeps every printed face far above 22 px.
 // Desktop keeps 66 and scale 1.
@@ -25,11 +28,13 @@ if (MOBILE) {
   // the page chrome must never zoom under a double tap or a pinch; only phones ask for this, desktop zoom is untouched
   const vp = document.querySelector('meta[name="viewport"]');
   if (vp) vp.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');
+  addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });          // a double tap is two taps, never a page zoom
+  addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });      // iOS Safari's own pinch-to-zoom
   // one short line on the how-to card: on a phone the camera lives under a finger, so say so (desktop copy unchanged)
   const howto = document.querySelector('#help ul');
   if (howto) { const li = document.createElement('li'); li.textContent = 'drag to look around · pinch to zoom'; howto.appendChild(li); }
   const hint = document.getElementById('hint');
-  if (hint) hint.innerHTML = 'find the eight paperfolk — tap one to greet it<br>tap the empty page to fold it flat';
+  if (hint) hint.innerHTML = 'find five of the eight paperfolk — tap one to greet it<br>tap the empty page to fold it flat';
 }
 
 // ---- 0. quality tier, resolved BEFORE the harness exists (the knobs go into createHarness's call): the kit's own
@@ -72,17 +77,38 @@ const HERO_AT = [pathX(3) + 0.2, 3];   // where the hero starts: the subject a f
 // paperfolk plays a FIXED overview (play: false), so the fill prints only what that overview can see (H.inFrame) —
 // the ring past it the walking camera could bring is never built. The view is authored for 16:9; ?size=1080x1920
 // (a Reel) or ?aspect=1:1 renders the same world in another format (references/formats.md)
+// lens: mobile keeps the authored grade but softens the tilt-shift — the closer portrait camera brings more of the far
+// rows into play and the stock 18 px blur swallowed their printed detail. maxBlur 18 -> 10, the sharp band 0.3 -> 0.4
+// with a 0.42 ramp. Desktop passes nothing beyond taps: its lens is the authored one, byte for byte.
+const LENS_PIN = MOBILE ? { focusBand: 0.4, ramp: 0.42, maxBlur: 10 } : null;
+const LENS_USED = { focusBand: 0.3, ramp: 0.3, maxBlur: 18, ...(LENS_PIN || {}) };   // the template's own values, then the mobile pin
+const BUILD_T0 = performance.now();   // world-print clock (the loading note covers one synchronous build); read by __pfMobile().print
+let BUILD_MS = 0;
+let FOREGROUND_GIANTS = 0;            // the near-camera "miniature scale" pieces built at the bottom edge (0 on mobile)
 const H = createHarness({ ground: C.ground, view: { pitch: 47, dist: MOBILE && PORTRAIT ? MOBILE_DIST : 66, target: [2, 1.5, -6] }, bounds: { x0: -64, x1: 64, z0: -62, z1: 38 }, play: false,
   walkArea: { x0: -18, x1: 22, z0: -24, z1: 7 }, camBox: { x0: -1, x1: 5, z0: -8, z1: -4 }, subject: HERO_AT,
-  dpr: Q.dpr, shadowMap: Q.shadow, msaa: Q.msaa, lens: { taps: Q.taps } });
+  dpr: Q.dpr, shadowMap: Q.shadow, msaa: Q.msaa, lens: { taps: Q.taps, ...(LENS_PIN || {}) } });
 const { walk, flags } = H;
 H.view.target = H.target;   // the pan writes the harness's own target; this alias lets a test read H.view.target too
 // print resolution of the fill (popup res): a piece placed OUTSIDE the lens's sharp-to-mid band (H.sharpAt) prints at
 // 0.6 of it — the harness already lowers pxPerUnit for non-sharp cards, this multiplies on top, and the blurred far
 // rows and near cards build ~3x faster (nothing visible changes; they sit under the DOF). Landmarks and the hero share
 // this wrapper: a coarser print on a blurred row is exactly the intent. Missing coords print at full res.
+// MOBILE: the closer portrait camera makes those out-of-band pieces fill more of the frame and the softer lens keeps them
+// readable, so a piece ON the portrait page prints at >= 0.85 (0.6 looked mushy). Pieces only in the turned (landscape)
+// fill keep 0.6: they are not in the portrait frame.
 const RES = 1;
-const popup = (pts, paint, o = {}) => H.popup(pts, paint, { res: flags.ROAM || flags.TEST || o.x === undefined || o.z === undefined || H.sharpAt(o.x, o.z) ? RES : RES * 0.6, ...o });   // ?roam/?test keep the kit's full-quality review prints
+const MOBILE_MIN_RES = 0.85;
+const PRINT_STATS = { pieces: 0, work: 0, base: 0 };   // build-time print budget: sum of res² (print time goes with res²)
+const _pv = new H.THREE.Vector3();
+const onPage = (x, z) => { const v = _pv.set(x, 1, z).project(H.camera); return Math.abs(v.x) <= 1 && v.y >= -1 && v.y <= 1; };
+const popup = (pts, paint, o = {}) => {
+  const sharp = flags.ROAM || flags.TEST || o.x === undefined || o.z === undefined || H.sharpAt(o.x, o.z);
+  let res = sharp ? RES : RES * 0.6;
+  if (MOBILE && !sharp && (o.x === undefined || o.z === undefined || onPage(o.x, o.z))) res = Math.max(res, MOBILE_MIN_RES);
+  PRINT_STATS.pieces++; PRINT_STATS.work += res * res; PRINT_STATS.base += (sharp ? RES : RES * 0.6) ** 2;
+  return H.popup(pts, paint, { res, ...o });   // ?roam/?test keep the kit's full-quality review prints
+};
 
 // ---- 2. the printed ground: watercolour washes, torn-paper river, path and fields, marks gathered in drifts ---------
 // THIS WORLD'S ground, not a recipe: replace it with your world's own floor and features (deck plates, sand ripples,
@@ -504,24 +530,32 @@ function buildWorld() {
     popup(...K[k](), { x, z, yaw: (rnd() - 0.5) * 0.7, scale: 0.65 + rnd() * 0.25, sway: k === 'tuft' || k === 'flowers' ? 0.6 : 0 });
   } };
   fillSmall(H.inFrame);
-  // big, blurred pieces overlapping the bottom edge sell the miniature scale
-  rnd = P2.rng(303);
-  // placed across THIS frame's bottom edge (screen x -1..1), a few units nearer than the page there, so every format
-  // (a narrow 9:16 frame too) gets them
-  for (const [sx, dz, s, kind] of [[-1.05, 5.2, 2.0, 'tree'], [-0.38, 6.7, 1.8, 'bush'], [1.05, 7.2, 2.1, 'tree'], [0.3, 8.2, 1.5, 'bush']]) {
-    const p = H.groundAt(sx, -1); if (!p) continue;
-    const x = p.x, z = p.z + dz;
-    if (kind === 'bush') bushStack(x, z, { scale: s, yaw: (rnd() - 0.5) * 0.4 });
-    else popup(...K.tree(), { x, z, cross: true, scale: s, sway: 0.6 });
+  // big, blurred pieces overlapping the bottom edge sell the miniature scale on the desktop's 16:9 page. On MOBILE the
+  // closer portrait camera turns them into giant foreground slabs across the bottom of the screen, so that arrangement
+  // is not built at all; the world and its printed edges are untouched.
+  let foregroundGiants = 0;
+  if (!MOBILE) {
+    rnd = P2.rng(303);
+    // placed across THIS frame's bottom edge (screen x -1..1), a few units nearer than the page there, so every format
+    // (a narrow 9:16 frame too) gets them
+    for (const [sx, dz, s, kind] of [[-1.05, 5.2, 2.0, 'tree'], [-0.38, 6.7, 1.8, 'bush'], [1.05, 7.2, 2.1, 'tree'], [0.3, 8.2, 1.5, 'bush']]) {
+      const p = H.groundAt(sx, -1); if (!p) continue;
+      const x = p.x, z = p.z + dz;
+      if (kind === 'bush') bushStack(x, z, { scale: s, yaw: (rnd() - 0.5) * 0.4 });
+      else popup(...K.tree(), { x, z, cross: true, scale: s, sway: 0.6 });
+      foregroundGiants++;
+    }
   }
   H.board = { trees, placed };   // paperfolk: the hiding-place candidates (every standing piece the fill placed)
+  FOREGROUND_GIANTS = foregroundGiants;
 }
 
 // ---- 9. PAPERFOLK: the game layer on this board ---------------------------------------------------------------------
 // Eight little paper creatures are placed by seed among the pieces. Six face the camera (find them in the raised
 // world); two are SHY: they stand with their plain kraft backs turned, and their printed faces show only when the
-// page is folded flat. Click a folk to greet it; click empty page to fold the world. All eight found folds the world
-// shut and reopens it, with the time on a paper card. ?seed=N replays the same hiding places; a new seed hides anew.
+// page is folded flat. Click a folk to greet it; click empty page to fold the world. Five found wins the round: the
+// world folds shut and reopens it, with the time on a paper card and a line teasing the three still hiding.
+// ?seed=N replays the same hiding places; a new seed hides anew.
 const PFG = (() => {
   const GQ = new URLSearchParams(location.search);
   const SEED = +(GQ.get('seed') || 0) || 1 + Math.floor(Math.random() * 999);
@@ -658,14 +692,18 @@ const PFG = (() => {
   // <= 10 CSS px is a tap. The harness's mouse drag (yaw/pitch) is untouched on desktop; during a touch gesture the game
   // raises H.touchPan, so the harness's three marked drag/fold lines step aside and a pan can never orbit or fold the
   // world. Pan moves the harness's own view target by the drag's world equivalent at the target plane (the page is
-  // foreshortened by the pitch); the target is held inside the dressed diorama. Pinch changes view.dist through
-  // H.setView, so the lens, DOF focus and soft shadow fit all follow the harness's own placements.
-  const PAN_X = [-26, 26], PAN_Z = [-24, 12], ZOOM = [34, 80];   // the dressed diorama plus the printed margin round it
+  // foreshortened by the pitch); the target is held inside the dressed diorama. A pinch writes only a TARGET distance;
+  // one easing step per H.onStep glides the applied distance toward it, then hands that value to H.setView once per step
+  // (never per pointer event), so the lens, DOF focus and soft shadow fit all follow smoothly.
+  const PAN_X = [-26, 26], PAN_Z = [-24, 12], ZOOM = [40, 80];   // the dressed diorama plus the printed margin round it
+  const ZOOM_EASE = 10;                                          // 1/s: the lens is ~63% of the way in 0.1 s, settled in ~0.4 s
+  let distTarget = H.view.dist;                                  // where the pinch wants the lens
+  let distSent = H.view.dist;                                    // the distance last handed to the harness
   const MOB = { ids: new Set(), start: new Map(), last: new Map(), mode: 'none', moved: 0, pinch: null, pinched: false, tap: false };
   const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
   const panScale = () => {   // world units per CSS px at the target plane, from the live lens and the canvas's own rect
     const r = cvEl().getBoundingClientRect();
-    return 2 * Math.tan(H.camera.fov * Math.PI / 360) * H.view.dist / Math.max(1, r.height);
+    return 2 * Math.tan(H.camera.fov * Math.PI / 360) * distTarget / Math.max(1, r.height);
   };
   function panBy(dx, dy) {
     const f = panScale(), yaw = H.view.yaw * Math.PI / 180;
@@ -680,7 +718,14 @@ const PFG = (() => {
     if (!a || !b || !MOB.pinch) return;
     const d = Math.hypot(a.x - b.x, a.y - b.y);
     if (d < 6) return;
-    H.setView({ dist: clampN(MOB.pinch.dist0 * MOB.pinch.d0 / d, ZOOM[0], ZOOM[1]) });   // spread: closer; pinch: further
+    distTarget = clampN(MOB.pinch.dist0 * MOB.pinch.d0 / d, ZOOM[0], ZOOM[1]);   // spread: closer; pinch: further
+  }
+  function stepZoom(dt) {
+    if (!MOBILE) return;
+    const k = 1 - Math.exp(-ZOOM_EASE * dt);
+    let v = distSent + (distTarget - distSent) * k;   // ease the APPLIED distance, so a released pinch keeps gliding
+    if (Math.abs(v - distTarget) < 0.01) v = distTarget;
+    if (Math.abs(v - distSent) > 0.05) { H.setView({ dist: v }); distSent = H.view.dist; }   // the shadow fit only re-runs on a real move
   }
   addEventListener('pointerdown', (e) => {
     if (!MOBILE || e.pointerType === 'mouse') return;   // a mouse keeps the harness's drag-to-look exactly as authored
@@ -693,7 +738,7 @@ const PFG = (() => {
     else if (MOB.ids.size === 2) {
       const [a, b] = [...MOB.last.values()];
       MOB.mode = 'pinch'; MOB.pinched = true;
-      MOB.pinch = { d0: Math.max(6, Math.hypot(a.x - b.x, a.y - b.y)), dist0: H.view.dist };
+      MOB.pinch = { d0: Math.max(6, Math.hypot(a.x - b.x, a.y - b.y)), dist0: distTarget };
       e.stopImmediatePropagation();   // the harness's own drag never starts under a pinch
     }
   }, { capture: true });
@@ -736,6 +781,7 @@ const PFG = (() => {
   let downAt = null, started = false, t0 = 0, done = false, foldedOnce = false;
   const pending = [];
   H.onStep((time, dt) => {
+    stepZoom(dt);   // the pinch's easing: one camera update per step, never per pointer event
     for (let i = pending.length - 1; i >= 0; i--) { const p = pending[i]; p.t -= dt; if (p.t <= 0) { pending.splice(i, 1); p.fn(); } }
     for (const s of stamps) if (s.t < s.life) { s.t += dt; s.mat.opacity = 0.8 * Math.min(1, s.t / s.life); }   // the ink print drying in
     for (let i = scraps.length - 1; i >= 0; i--) {   // paper scraps: a short outward arc, gravity, a slow turn, then gone
@@ -773,9 +819,13 @@ const PFG = (() => {
   }, { capture: true });
 
   // the HUD: a row of paper tokens, a fading hint, a toast, an end card (HTML in the papercraft style)
+  // FIVE token tabs everywhere: one per find, filled left to right in the order the folk are greeted. The count reads
+  // "n of 5"; the remaining three folk are the end card's teaser, not extra tabs.
   const $ = (id) => document.getElementById(id);
   const tokens = $('folk-tokens');
-  if (tokens) for (const f of FOLK) { const t = document.createElement('div'); t.className = 'token' + (f.shy ? ' shy' : ''); t.id = 'tok' + f.id; t.style.setProperty('--base', f.base); tokens.appendChild(t); }
+  if (tokens) for (let i = 0; i < GOAL; i++) { const t = document.createElement('div'); t.className = 'token'; t.id = 'tok' + i; tokens.appendChild(t); }
+  { const count = $('count'); if (count) count.textContent = '0 of ' + GOAL; }
+  const foundCount = () => FOLK.filter((f) => f.found).length;
   const toastBox = $('toast'); let toastTimer = null;
   function toast(msg) { if (!toastBox) return; toastBox.textContent = msg; toastBox.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastBox.classList.remove('show'), 5200); }
   setTimeout(() => { const hint = $('hint'); if (hint) hint.classList.add('fade'); }, 16000);
@@ -845,30 +895,33 @@ const PFG = (() => {
   }
 
   function collect(f) {
+    if (done || foundCount() >= GOAL) return;                        // five is the round: the last three stay in the world
     f.found = true;
     hintStuck = 0; if (bf.active) hideButterfly();                  // the butterfly's job is done: no hint for a found world
     if (marker && marker.target === f) clearMarker();               // a marker never rings a folk already found
     H.sound.flap({ size: 0.5, up: true, key: 'folk' + f.id });
     foundFlourish(f);
     plantTag(f);   // the name tag itself reports the find: no toast for collects
-    const tok = $('tok' + f.id); if (tok) tok.classList.add('found');
-    const n = FOLK.filter((x) => x.found).length;
+    const n = foundCount();
+    const tok = $('tok' + (n - 1));                                 // tokens fill in find order, not by folk id
+    if (tok) { tok.style.setProperty('--base', f.base); if (f.shy) tok.classList.add('shy'); tok.classList.add('found'); }
     const count = $('count');
     if (count) {
-      count.textContent = n + ' of ' + FOLK.length;
+      count.textContent = n + ' of ' + GOAL;
       count.classList.remove('ping'); void count.offsetWidth; count.classList.add('ping');   // a brief ink ring on the count
     }
-    if (n === FOLK.length) win();
+    if (n >= GOAL) win();
   }
   function win() {
+    if (done) return;
     done = true;
     const secs = started ? Math.round((performance.now() - t0) / 1000) : 0;
-    after(0.8, () => H.setOpen(false));   // the world folds shut with all the folk inside...
+    after(0.8, () => H.setOpen(false));   // the world folds shut with the five found folk inside...
     after(2.6, () => H.setOpen(true));    // ...and opens again
     after(1.1, () => {
       const card = $('endcard'); if (!card) return;
       $('final-time').textContent = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
-      $('final-names').textContent = FOLK.map((f) => f.kind).join(', ');
+      $('final-names').textContent = FOLK.filter((f) => f.found).map((f) => f.kind).join(', ');
       card.classList.remove('hidden');
       refreshShare();
     });
@@ -877,9 +930,10 @@ const PFG = (() => {
   const stay = $('stay'); if (stay) stay.addEventListener('click', () => { const card = $('endcard'); if (card) card.classList.add('hidden'); });
 
   // the share card. A 1080 square PNG printed from the same paper: cream stock, a procedurally torn edge, an ink
-  // neatline, the run time huge, eight little paper tokens and one small rust/gold rule. Generated on demand (the end
-  // card and the first share press), cached as a Blob, and exposed only as an object URL — a data URL is never stored
-  // or attached to the page. Sharing is Web Share + plain intents: no backend, no trackers, no third-party script.
+  // neatline, the run time huge, five filled paper tokens (and three dashed empty ones: the teaser) and one small
+  // rust/gold rule. Generated on demand (the end card and the first share press), cached as a Blob, and exposed only as
+  // an object URL — a data URL is never stored or attached to the page. Sharing is Web Share + plain intents: no
+  // backend, no trackers, no third-party script.
   const SHARE_URL = 'https://play.buildquietly.com/games/paperfolk/?ref=share';
   const SHARE_FILE = 'paperfolk-run.png';
   let shareBlob = null, shareUrl = '', shareKey = '';
@@ -960,13 +1014,16 @@ const PFG = (() => {
     g.fillStyle = INK; g.font = 'italic 264px Georgia, "Times New Roman", serif';
     g.fillText(time, 540, 634);
     g.font = 'italic 38px Georgia, "Times New Roman", serif';
-    g.fillText('all eight folk found', 540, 730);
+    g.fillText('all five folk found', 540, 730);
+    // five filled token tabs and three dashed empty ones: the teaser, drawn in the same ink as the card
     const cols = [RUST, GOLD, SAGE, TEAL], start = 540 - (8 * 26 + 7 * 13) / 2;
     for (let i = 0; i < 8; i++) {
       const x = start + i * 39;
       g.save(); g.translate(x + 13, 780); g.rotate((i % 2 ? -1 : 1) * .035);
-      g.fillStyle = cols[i % cols.length]; g.fillRect(-13, 0, 26, 34);
-      g.strokeStyle = shareInk(.35); g.lineWidth = 1; g.strokeRect(-13, 0, 26, 34);
+      g.fillStyle = i < GOAL ? cols[i % cols.length] : CREAM; g.fillRect(-13, 0, 26, 34);
+      g.strokeStyle = shareInk(i < GOAL ? .35 : .5); g.lineWidth = 1;
+      if (i < GOAL) g.strokeRect(-13, 0, 26, 34);
+      else { g.setLineDash([4, 3]); g.strokeRect(-13, 0, 26, 34); }
       g.restore();
     }
     g.strokeStyle = shareInk(.25); g.lineWidth = 1;
@@ -994,7 +1051,7 @@ const PFG = (() => {
     } catch (e) { return null; }
   }
   function getShareBlob() { return shareBlob && shareKey === shareKeyNow() ? shareBlob : buildCard(); }
-  function shareCaption() { return 'I found all 8 paperfolk in ' + shareTime() + '. Can you?'; }
+  function shareCaption() { return 'I found five of the eight paperfolk in ' + shareTime() + '. Three more still hide \u2014 find them all?'; }
   function paintShareLinks() {
     const t = shareCaption(), u = SHARE_URL;
     const x = $('share-x'), wa = $('share-wa'), tg = $('share-tg');
@@ -1143,7 +1200,9 @@ const PFG = (() => {
   // If nothing is found 30 s after the first interaction (the end-card clock starts on the same pointerdown), then
   // every ~35 s after, a tiny cut-paper butterfly enters from the frame edge, flutters to a point beside the nearest
   // visible unfound folk, hovers, and leaves. It is scene decoration only: no hinge, no meshToFolk entry, no raycast,
-  // so it can neither be clicked nor block a probe. It exists only while found === 0 (the getting-started hint).
+  // so it can neither be clicked nor block a probe. It runs only while the round is short of its five (found < GOAL):
+  // the getting-started nudge stops at the goal. (It used to stop at the first find; the owner's goal change lets it
+  // keep helping a player who is stuck at two or three.)
   const bf = { g: null, wings: [], mats: [], phase: 'idle', t: 0, dur: 0, age: 0, target: null, active: false, tight: false, manual: false, lastTarget: null, leftAt: -1e9,
     from: new H.THREE.Vector3(), to: new H.THREE.Vector3(), away: new H.THREE.Vector3() };
   let marker = null, tag = null;   // the manual hint's ground marker (ring + prize flag) and the found name tag; both live outside H.hinges
@@ -1354,6 +1413,7 @@ const PFG = (() => {
     else clearTag();
   }
   function hintTarget() {   // prefer a clear, comfortably in-frame folk near the middle; never a blurry edge if better exists
+    if (foundCount() >= GOAL) return null;   // the round is won at five: no hint for the teaser folk
     const unfound = FOLK.filter((f) => !f.found);
     if (!unfound.length) return null;
     const r = cvEl().getBoundingClientRect();
@@ -1370,7 +1430,7 @@ const PFG = (() => {
     return target;
   }
   function startHint(tight = false, target = null, manual = false) {
-    if (done) return false;
+    if (done || foundCount() >= GOAL) return false;
     target = target || hintTarget();
     if (!target) return false;
     const off = tight ? 1.2 : 2.5;   // 2.5 units beside it (never on it); a repeat tap comes in to 1.2
@@ -1397,7 +1457,7 @@ const PFG = (() => {
   let hintClock = 0, hintLastTap = -1e9;
   const shyWords = 'a shy one — fold the page flat to see its face';
   function manualHint() {
-    if (done || !FOLK.some((f) => !f.found)) return false;
+    if (done || foundCount() >= GOAL) return false;               // five found: the round is over, the rest is free play
     if (hintClock - hintLastTap < 1.2) return false;             // spam guard: a tap within 1.2 s is a slip
     hintLastTap = hintClock;
     if (!started) { started = true; t0 = performance.now(); }    // a hint tap is a first interaction too (the timer runs)
@@ -1450,7 +1510,7 @@ const PFG = (() => {
   H.onStep((time, dt) => {
     hintClock += dt;
     stepButterfly(dt); stepMarker(dt); stepTag(dt);
-    if (!started || done || FOLK.some((f) => f.found)) return;   // the automatically triggered getting-started hint only
+    if (!started || done || foundCount() >= GOAL) return;     // the auto getting-started hint only, and only until the goal
     hintStuck += dt;
     if (hintStuck >= hintNext) { startHint(); hintNext += 35; }
   });
@@ -1521,8 +1581,10 @@ const PFG = (() => {
   };
   after(0.8, fixup);
   // the mobile readout for the main session's stepped tests (additive; also window.__pfMobile). It reports the live
-  // camera (dist after a pinch), the view target after a pan, and the starter's projected height in CSS px — the number
-  // behind the "folk read at >= ~22 px" check. Desktop simply reports mobile:false and the authored 66 / 1x values.
+  // camera (dist = applied, distTarget = the pinch's goal), the view target after a pan, the lens pin in force, the
+  // mobile print resolution and world-build time, the near-camera foreground count, and the starter's projected height
+  // in CSS px — the number behind the "folk read at >= ~22 px" check. Desktop reports mobile:false and the authored
+  // 66 / 1x / lens / 0.6 values.
   function mobileInfo() {
     const r = cvEl().getBoundingClientRect();
     H.camera.updateMatrixWorld();
@@ -1531,11 +1593,14 @@ const PFG = (() => {
     const pxOf = (f) => { const a = new H.THREE.Vector3(f.x, 0, f.z).project(H.camera), b = new H.THREE.Vector3(f.x, hOf(f), f.z).project(H.camera); return Math.round(Math.abs(b.y - a.y) * r.height / 2); };
     const starterPx = st && st.h ? pxOf(st) : null;
     const sized = FOLK.filter((f) => f.h);
-    return { mobile: MOBILE, portrait: PORTRAIT, dist: +H.view.dist.toFixed(2),
+    return { mobile: MOBILE, portrait: PORTRAIT, dist: +H.view.dist.toFixed(2), distTarget: +distTarget.toFixed(2),
       pan: { x: +H.target.x.toFixed(2), z: +H.target.z.toFixed(2) },
       target: { x: +H.target.x.toFixed(2), y: +H.target.y.toFixed(2), z: +H.target.z.toFixed(2) },
       starterPx, minFolkPx: sized.length ? Math.min(...sized.map(pxOf)) : null, folkScale: FOLK_SCALE,
       pinching: MOB.mode === 'pinch', touchPan: !!H.touchPan,
+      lens: { focusBand: LENS_USED.focusBand, ramp: LENS_USED.ramp, maxBlur: LENS_USED.maxBlur, taps: Q.taps },
+      print: { outOfBandRes: MOBILE ? MOBILE_MIN_RES : 0.6, buildMs: BUILD_MS, pieces: PRINT_STATS.pieces, resWorkRatio: +(PRINT_STATS.work / Math.max(1e-6, PRINT_STATS.base)).toFixed(3) },
+      foregroundGiants: FOREGROUND_GIANTS, goal: GOAL,
       clamps: { panX: PAN_X.slice(), panZ: PAN_Z.slice(), dist: ZOOM.slice() } };
   }
   return {
@@ -1569,7 +1634,7 @@ const PFG = (() => {
         return { dist: +h.distance.toFixed(2), meshType: o.type, folk: meshToFolk.has(o), chain };
       }) };
     },
-    state: () => ({ seed: SEED, foldOpen: H.isOpen(), found: FOLK.filter((f) => f.found).length, total: FOLK.length, done, stamps: stamps.length,
+    state: () => ({ seed: SEED, foldOpen: H.isOpen(), found: foundCount(), total: FOLK.length, goal: GOAL, done, stamps: stamps.length,
       tag: tag && tag.active ? { active: true, id: tag.id } : null }),
     probe: () => FOLK.map((f) => { const v = visibility(f); const hp = KINDS[f.kind].h * KINDS[f.kind].s * f.scale; const pb = new H.THREE.Vector3(f.x, 0, f.z).project(H.camera), pt = new H.THREE.Vector3(f.x, hp, f.z).project(H.camera);
       return { id: f.id, kind: f.kind, shy: f.shy, x: +f.x.toFixed(1), z: +f.z.toFixed(1), clickClear: v.clear, facing: v.facing, onScreen: safeOnScreen(f), screen: project(f), px: Math.round(Math.abs(pt.y - pb.y) * cvEl().getBoundingClientRect().height / 2), found: f.found, starter: !!f.starter }; }),
@@ -1580,10 +1645,11 @@ const PFG = (() => {
   };
 })();
 window.__paperfolk = PFG;
-window.__pfMobile = PFG.mobile;   // additive mobile camera readout (dist, pan target, starter px): see mobileInfo
+window.__pfMobile = PFG.mobile;   // additive mobile readout (dist / distTarget, pan target, lens, print res, foreground count): see mobileInfo
 window.__pfh = H;   // the test hook's way into the harness (springs, camera, scene)
 
 const __loading = document.getElementById('loading');   // the world is printed (a slow, single synchronous build): lift the note
+BUILD_MS = Math.round(performance.now() - BUILD_T0);     // module start -> printed world (the mobile print-res cost is measured here)
 if (__loading) __loading.remove();
 
 H.start();
