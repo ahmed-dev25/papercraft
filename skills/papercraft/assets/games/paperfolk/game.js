@@ -23,14 +23,34 @@ const C = {
 const riverX = (z) => -26.4 - z * 0.8 + Math.sin(z * 0.15) * 3 + Math.sin(z * 0.23 + 2.1) * 2.6;   // top centre -> left edge
 const pathX = (z) => 6 + z * 0.7 + Math.sin(z * 0.13 + 1) * 2.4 + Math.sin(z * 0.21 + 0.4) * 2.8;  // bottom right -> the bridge -> top left
 const HERO_AT = [pathX(3) + 0.2, 3];   // where the hero starts: the subject a frame narrower than 16:9 swings toward
-// one diorama: the hero walks anywhere the overview shows (walkArea), the camera drifts a few units with him (camBox),
-// and the fill covers every frame that walk can bring (H.inReach), so he never finds bare page. The view is authored
-// for 16:9; ?size=1080x1920 (a Reel) or ?aspect=1:1 renders the same world in another format (references/formats.md)
+// one diorama: the hero walks anywhere the overview shows (walkArea), the camera drifts a few units with him (camBox).
+// paperfolk plays a FIXED overview (play: false), so the fill prints only what that overview can see (H.inFrame) —
+// the ring past it the walking camera could bring is never built. The view is authored for 16:9; ?size=1080x1920
+// (a Reel) or ?aspect=1:1 renders the same world in another format (references/formats.md)
+// ---- 1b. quality tier: the kit's own documented ladder (references/three-js.md section 9). ?tier=high|med|low beats
+// a saved localStorage 'pf-tier' beats auto-detect ('high' until the post-start fps sampler steps it down, below).
+// The knobs: DPR cap, key-light shadow map, PaperPost MSAA samples, DOF taps; ambient life counts scale with it too.
+const TIER = (() => {
+  const t = new URLSearchParams(location.search).get('tier');
+  if (t === 'high' || t === 'med' || t === 'low') return t;
+  let s = null; try { s = localStorage.getItem('pf-tier'); } catch { /* storage blocked: auto-detect it is */ }
+  return s === 'med' || s === 'low' ? s : 'high';
+})();
+const Q = {
+  high: { dpr: 2, shadow: 4096, msaa: 4, taps: 40, fallers: 60, flyers: 8, clouds: 4 },   // the kit's own defaults
+  med: { dpr: 1.25, shadow: 2048, msaa: 2, taps: 24, fallers: 36, flyers: 5, clouds: 2 },
+  low: { dpr: 1, shadow: 1024, msaa: 0, taps: 16, fallers: 20, flyers: 3, clouds: 1 },
+}[TIER];
 const H = createHarness({ ground: C.ground, view: { pitch: 47, dist: 66, target: [2, 1.5, -6] }, bounds: { x0: -64, x1: 64, z0: -62, z1: 38 }, play: false,
-  walkArea: { x0: -18, x1: 22, z0: -24, z1: 7 }, camBox: { x0: -1, x1: 5, z0: -8, z1: -4 }, subject: HERO_AT });
+  walkArea: { x0: -18, x1: 22, z0: -24, z1: 7 }, camBox: { x0: -1, x1: 5, z0: -8, z1: -4 }, subject: HERO_AT,
+  dpr: Q.dpr, shadowMap: Q.shadow, msaa: Q.msaa, lens: { taps: Q.taps } });
 const { walk, flags } = H;
-let RES = 1;   // print resolution of the fill (popup res): the ring past the overview prints a little coarser
-const popup = (pts, paint, o = {}) => H.popup(pts, paint, { res: RES, ...o });
+// print resolution of the fill (popup res): a piece placed OUTSIDE the lens's sharp-to-mid band (H.sharpAt) prints at
+// 0.6 of it — the harness already lowers pxPerUnit for non-sharp cards, this multiplies on top, and the blurred far
+// rows and near cards build ~3x faster (nothing visible changes; they sit under the DOF). Landmarks and the hero share
+// this wrapper: a coarser print on a blurred row is exactly the intent. Missing coords print at full res.
+const RES = 1;
+const popup = (pts, paint, o = {}) => H.popup(pts, paint, { res: flags.ROAM || flags.TEST || o.x === undefined || o.z === undefined || H.sharpAt(o.x, o.z) ? RES : RES * 0.6, ...o });   // ?roam/?test keep the kit's full-quality review prints
 
 // ---- 2. the printed ground: watercolour washes, torn-paper river, path and fields, marks gathered in drifts ---------
 // THIS WORLD'S ground, not a recipe: replace it with your world's own floor and features (deck plates, sand ripples,
@@ -324,11 +344,13 @@ if (flags.TEST) {
 // dust and gusts, bubbles and fish...), in its own colours: never this list by default.
 if (!flags.TEST) {
   const life = createLife({ scene: H.scene, camera: H.camera, heroHeight: H.heroHeight, seed: 41, wind: [0.94, 0.34] });
-  life.fallers({ count: 60, cut: 'leaf', colors: [C.leafA, C.leafB, C.leafC, '#a8452a'], size: [0.2, 0.3], land: 9 });
+  // ambient counts scale with the quality tier (Q, above: 60/36/20 fallers, 8/5/3 flyers, 4/2/1 cloud shadows) — the
+  // frame budget goes to the world itself; the flock and the chimney puffs are few enough to leave alone
+  life.fallers({ count: Q.fallers, cut: 'leaf', colors: [C.leafA, C.leafB, C.leafC, '#a8452a'], size: [0.2, 0.3], land: 9 });
   life.flock({ size: 5, height: 3.4, colors: ['#f6f1e6', '#e9e2d4'] });
-  life.flyers({ count: 8, colors: ['#fff6e0', '#f6c64a', '#ef8a3c'], anchors: LIFE.flowers.slice(0, 8), roam: 1.4 });
+  life.flyers({ count: Q.flyers, colors: ['#fff6e0', '#f6c64a', '#ef8a3c'], anchors: LIFE.flowers.slice(0, 8), roam: 1.4 });
   life.puffs({ at: LIFE.chimneys, perEmitter: 3, life: 4.5, rise: 0.45, size: [0.2, 0.45], colors: ['#f3e8d2', '#ece0c8'] });   // paper discs with a cut spiral, just above the chimney
-  life.cloudShadows({ count: 4 });
+  life.cloudShadows({ count: Q.clouds });
   for (const [h, roam] of LIFE.floaters) life.critter(h.group, { behaviour: 'float', roam });
   for (const [h, behaviour] of LIFE.creatures) life.critter(h.group, { behaviour, hero: H.hero.group.position, walk: H.walk, roam: 1.2 });
   life.setNight({ night: 1, dusk: 0.5 }[flags.MOOD] ?? 0);   // butterflies sleep, fewer birds, no smoke at night
@@ -409,7 +431,8 @@ function buildWorld() {
   { const [x, z] = at(6.5, 3); popup(...K.bench(), { x, z, yaw: -0.3 }); mark(x, z, 2.2); mark(pathX(3), 3, 2.4); }
 
   // the fill: a slow noise decides woods (high), groups (middle) and clearings (low), only where the camera can see:
-  // first the overview (inFrame), then the ring past it that the walking camera can bring (inReach minus inFrame).
+  // the overview (inFrame) alone — this game is a fixed diorama (play: false), so the ring past the frame that a
+  // walking camera could bring is never printed (the old ring fill cost ~half the build for a view nobody sees).
   // Every cell draws from its own seed, so each frame shape (16:9, 9:16, 1:1) and each camera sees the same pieces at
   // the same places: the frame only decides which cells are built
   rnd = P2.rng(202);
@@ -456,10 +479,6 @@ function buildWorld() {
     if (kind === 'bush') bushStack(x, z, { scale: s, yaw: (rnd() - 0.5) * 0.4 });
     else popup(...K.tree(), { x, z, cross: true, scale: s, sway: 0.6 });
   }
-  // the ring the walk can bring into view (after the overview, so the overview's own draws never change)
-  // (the overview's own margin already covers most of the drift: the ring is what the drift shows beyond it)
-  const ring = (x, z, m, y) => H.inReach(x, z, 0.02, y) && !H.inFrame(x, z, m, y);
-  RES = 0.75; fillGroups(ring); fillSmall(ring, -36, 44); RES = 1;
   H.board = { trees, placed };   // paperfolk: the hiding-place candidates (every standing piece the fill placed)
 }
 
@@ -650,7 +669,7 @@ const PFG = (() => {
       card.classList.remove('hidden');
     });
   }
-  const shuffle = $('shuffle'); if (shuffle) shuffle.addEventListener('click', () => { location.href = location.pathname + '?seed=' + (SEED % 999 + 1); });
+  const shuffle = $('shuffle'); if (shuffle) shuffle.addEventListener('click', () => { location.href = location.pathname + '?seed=' + (SEED % 999 + 1) + (GQ.get('tier') ? '&tier=' + GQ.get('tier') : ''); });   // an explicit ?tier= follows the shuffle
   const stay = $('stay'); if (stay) stay.addEventListener('click', () => { const card = $('endcard'); if (card) card.classList.add('hidden'); });
 
   // the test hook (?probe or window.__paperfolk): positions, screen places, visibility and synthetic clicks.
@@ -715,17 +734,22 @@ const PFG = (() => {
     spawn(f, best[0], best[1], f.shy);
     return true;
   }
-  let fixups = 0;
-  const fixup = () => {   // once the camera is live: any folk the fill hid, or the frame cut, moves to a better spot
-    let moved = false;
-    for (const f of FOLK) {
-      if (f.found) continue;
-      f.ok = f.shy ? safeOnScreen(f) : (visibility(f).clear && safeOnScreen(f));
-      if (f.ok) continue;
-      if (fixups < 5) { if (relocate(f)) moved = true; }
-      else if (relocateBest(f)) moved = true;   // the final pass: least-blocked beats hidden
-    }
-    if (moved && ++fixups < 6) after(0.35, fixup);
+  let fixups = 0, fi = 0, moved = false;
+  const fixup = () => {   // once the camera is live: any folk the fill hid, or the frame cut, moves to a better spot.
+    // ONE folk a tick, the next ~0.15 s later (after()): the relocation raycasts spread over the opening instead of
+    // one hitch while the world rises. A full sweep is a pass; passes repeat while any folk moved, preserving the
+    // old multi-pass behaviour, and the 6th and last still falls back to the least-blocked spot.
+    if (fi < FOLK.length) {
+      const f = FOLK[fi++];
+      if (!f.found) {
+        f.ok = f.shy ? safeOnScreen(f) : (visibility(f).clear && safeOnScreen(f));
+        if (!f.ok) {
+          if (fixups < 5) { if (relocate(f)) moved = true; }
+          else if (relocateBest(f)) moved = true;   // the final pass: least-blocked beats hidden
+        }
+      }
+      after(0.15, fixup);
+    } else if (moved && ++fixups < 6) { moved = false; fi = 0; after(0.15, fixup); }
   };
   after(0.8, fixup);
   return {
@@ -771,3 +795,29 @@ const __loading = document.getElementById('loading');   // the world is printed 
 if (__loading) __loading.remove();
 
 H.start();
+
+// ---- 10. tier auto-detect: a self-contained rAF fps sampler (the harness loop is untouched) ------------------------------------
+// After the synchronous build, ~3 s of the LIVE frame rate says whether this machine holds the current tier. A slow
+// one steps down a single tier and reloads ONCE (?tiered= counts the reloads, so a loop is impossible); ?tier=
+// (the player's word) and a machine with no lower tier skip it; if rAF barely runs (some embedded browsers pause it),
+// it stays silent and keeps the tier. ?tier=high|med|low for manual testing.
+(() => {
+  const q = new URLSearchParams(location.search);
+  if (q.has('tier')) return;                       // an explicit ?tier= beats auto-detect: never reload under it
+  const step = TIER === 'high' ? 'med' : TIER === 'med' ? 'low' : null;
+  const reloads = +(q.get('tiered') || 0);
+  if (!step || reloads >= 2) return;               // nothing lower, or both step-downs spent: stay put
+  let n = 0, t0 = null;
+  requestAnimationFrame(function sample(t) {
+    if (t0 === null) { t0 = t; requestAnimationFrame(sample); return; }
+    n++;
+    if (t - t0 < 3000) { requestAnimationFrame(sample); return; }
+    if (n < 10) return;                            // rAF is paused or barely runs here: keep the tier, say nothing
+    const fps = n / ((t - t0) / 1000);
+    if (fps < (TIER === 'high' ? 45 : 40)) {
+      try { localStorage.setItem('pf-tier', step); } catch { /* storage blocked: the reload still happens */ }
+      q.set('tiered', String(reloads + 1));
+      location.search = '?' + q.toString();        // one reload per step-down, seed and size params kept
+    }
+  });
+})();

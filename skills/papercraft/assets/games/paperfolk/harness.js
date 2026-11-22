@@ -47,7 +47,11 @@ export const MOODS = {
  * { x0, x1, z0, z1 } (hold the camera's target in your own box instead: a single diorama the camera barely leaves),
  * size [w, h] / aspect (number or 'w:h') (the output frame, as ?size / ?aspect), subject [x, z] (what a frame narrower
  * than 16:9 swings toward so it stays in view: the hero's start or the landmark; default focus), rotate (true: also
- * fill the frame turned 90 degrees, for a phone page that may be rotated). Author the view for 16:9: another shape
+ * fill the frame turned 90 degrees, for a phone page that may be rotated).
+ * paperfolk quality tiers (references/three-js.md section 9): dpr (the pixel-ratio cap; default 2), shadowMap (the
+ * key light's shadow map; 4096), msaa (PaperPost target samples; 4) and lens.taps (40) set one: the kit's own ladder
+ * is high 2/4096/4/40, med 1.25/2048/2/24, low 1/1024/0/16. The defaults are the kit's own high tier.
+ * Author the view for 16:9: another shape
  * keeps the lens on its short side (view.closer brings a tall frame closer: formats.md). H.frame { w, h, aspect, fovY,
  * wide, tall, lat, mag, printScale } describes it.
  * H.onStep(fn): fn(time, dt) every fixed step (fireflies, flicker, a turning wheel): animate on the harness clock.
@@ -66,6 +70,7 @@ export const MOODS = {
  */
 export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, ground = '#d9d2c2', view: view0 = {}, testView = { dist: 38, target: [3, 1.5, -6] },
   heroHeight = 3.6, light = {}, lens = {}, walk: walkOpts = { step: 0.75, radius: 0.6 }, moods = MOODS, play = false, focus = null, mood = null, stock = '#f7f0e2', walkArea = null, camBox = null,
+  dpr = 2, shadowMap = 4096, msaa = 4,   // paperfolk: the quality tier knobs (defaults: the kit's own high tier)
   size = null, aspect = null, subject = null, rotate = false } = {}) {
   const T0 = performance.now();
   // print costs by the scene line that asked for them: __papercraft.printStats() (and a console line when the build is
@@ -113,7 +118,7 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
   const ASPECT = (() => { const p = pair(Q.get('aspect') ?? aspect, /^([\d.]+)\s*[:x/]\s*([\d.]+)$/i); return p ? p[0] / p[1] : typeof aspect === 'number' ? aspect : null; })();
   function frameBox() {   // drawing size (CSS px; times pr = device px), its size on screen (cw x ch) and pixel ratio
     if (SIZE) { const k = Math.min(1, innerWidth / SIZE[0], innerHeight / SIZE[1]); return { w: SIZE[0], h: SIZE[1], cw: SIZE[0] * k, ch: SIZE[1] * k, pr: SS }; }
-    const pr = Math.min(3, Math.min(devicePixelRatio, 2) * SS);
+    const pr = Math.min(3, Math.min(devicePixelRatio, dpr) * SS);   // paperfolk: dpr caps the pixel ratio by tier (2 = the kit's own)
     if (ASPECT) { const cw = Math.min(innerWidth, innerHeight * ASPECT), ch = cw / ASPECT; return { w: Math.round(cw), h: Math.round(ch), cw, ch, pr }; }
     return { w: innerWidth, h: innerHeight, cw: innerWidth, ch: innerHeight, pr };
   }
@@ -458,7 +463,7 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
   function start() {
     const hero = H.hero; if (!hero) throw new Error('papercraft harness: call H.setHero(popup(...)) before H.start()');
     const L = { target: new THREE.Vector3(-1, 0, -12), keyDir: [-0.8, 0.95, 0.55], key: '#ffdcb2', keyIntensity: 3.0, fill: '#f2dcc2', fillIntensity: 0.8,
-      fillDir: [0.45, 0.5, 1.0], sky: '#fff0da', ground: '#b39a78', skyIntensity: 0.42, shadowExtent: 50, distance: 100, mapSize: 4096, leak: '#a0602c', softness: 0.26, maxPenumbra: 1.4, ...light };
+      fillDir: [0.45, 0.5, 1.0], sky: '#fff0da', ground: '#b39a78', skyIntensity: 0.42, shadowExtent: 50, distance: 100, mapSize: shadowMap, leak: '#a0602c', softness: 0.26, maxPenumbra: 1.4, ...light };
     // key from the side, ~55 deg off the camera axis and ~45 deg up: faces stay lit, shadows fall sideways where the
     // camera sees them (a key from behind the camera hides every shadow)
     const lights = paperLights(scene, L);
@@ -466,6 +471,7 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
     enableSoftShadows(lights.key, { softness: L.softness, maxPenumbra: L.maxPenumbra });
     const post = new PaperPost(renderer, scene, camera, { haze: '#d8bf8e', hazeStart: 34, hazeEnd: 95, hazeAmount: 0.3, focusBand: 0.3, ramp: 0.3, maxBlur: 18,
       tint: [1.03, 0.985, 0.98], saturation: 0.96, greenDesat: 0.3, exposure: 0.82, contrast: 1.18, vignette: 0.03, ...lens });
+    if (msaa !== 4) post.rtScene.samples = msaa;   // paperfolk: the tier's MSAA (0-2 on med/low); before the first setSize, so the target allocates with it
     const M = moods[flags.MOOD];
     if (M) {
       lights.key.color.set(M.key); lights.key.intensity = M.ki; lights.fill.color.set(M.fill); lights.fill.intensity = M.fi;
