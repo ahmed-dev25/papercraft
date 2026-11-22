@@ -7,15 +7,14 @@ Each entry: what it is, why it is worth doing, the next concrete step, and what 
 
 ## Now
 
-- **crease - phase 1 polish (in progress).** The fold mechanic, 3 plates, touch and layout are
-  verified. A visual polish pass is running: running-head collision, solved stamp, die-cut window
-  recess, fold shading, kraft back, page furniture, desktop surround, primary button.
-  Next: re-shoot 390x844 and 1440x900, compare, commit, deploy.
+- **Nothing is building.** The paper-films pipeline is being discussed before implementation.
 
 ## Next
 
-- **crease - phase 2.** Four more solver-checked plates (7 total), the specimen margin filling as
-  plates are solved, end card + share card, shelf card 03, deploy, X clip.
+- **crease - phase 2.** Phase 1 is committed and live unlisted at `/games/crease/`. Four more
+  solver-checked plates (7 total), the specimen margin filling as plates are solved, end card +
+  share card, shelf card 03, deploy, X clip.
+- **paper films - proposal.** Draft design in `video/PIPELINE.md`; not approved, not built.
 - **Inkfold - Chapter 1.** Planned in `implementation_plan.md` (M0-M6). Do not start until crease
   is live and the fold feel is settled; Inkfold reuses that geometry.
 
