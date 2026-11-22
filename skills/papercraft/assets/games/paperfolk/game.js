@@ -9,6 +9,27 @@ import { boxHouse, bridge } from 'papercraft/examples/built-ground.js';
 import { createLife } from 'papercraft/lib/paper-life.js';
 import { createHarness } from './harness.js';
 
+// ---- 0. quality tier, resolved BEFORE the harness exists (the knobs go into createHarness's call): the kit's own
+// documented ladder (references/three-js.md section 9). ?tier=high|med|low always wins and turns every automatic
+// step-down off; otherwise a hardware heuristic picks the tier up front — a weak machine must never pay for a
+// high-tier build and then rebuild (a reload-based tune re-prints the whole world, a minute of loading for nothing).
+// No reloads, nothing persisted. The knobs: DPR cap, key-light shadow map, PaperPost MSAA samples, DOF taps;
+// ambient life counts scale with it too. A one-shot LIVE downgrade (section 10, below) is the only fallback.
+const TIER = (() => {
+  const t = new URLSearchParams(location.search).get('tier');
+  if (t === 'high' || t === 'med' || t === 'low') return t;   // the player's explicit word
+  const cores = navigator.hardwareConcurrency, dm = navigator.deviceMemory;   // dm (GB) is Chromium-only: absent = no signal
+  if ((cores >= 1 && cores <= 2) || (dm !== undefined && dm <= 4)) return 'low';
+  if ((cores >= 1 && cores <= 4) || (dm !== undefined && dm <= 8)) return 'med';
+  return 'high';   // missing or out-of-range readings (0, undefined, spoofed huge) are no signal
+})();
+const Q = {
+  high: { dpr: 2, shadow: 4096, msaa: 4, taps: 40, fallers: 60, flyers: 8, clouds: 4 },   // the kit's own defaults
+  med: { dpr: 1.25, shadow: 2048, msaa: 2, taps: 24, fallers: 36, flyers: 5, clouds: 2 },
+  low: { dpr: 1, shadow: 1024, msaa: 0, taps: 16, fallers: 20, flyers: 3, clouds: 1 },
+}[TIER];
+const PF_LIFE = [];   // the ambient kinds a live tier step-down can thin at runtime: [kind, Q key] pairs (section 6)
+
 // ---- 1. palette: THIS WORLD'S ONLY (autumn countryside: warm orange / rust / ochre lead; sage, teal and cream
 // accents). Do not start from these hexes: derive your own from your brief (references/palettes.md section 3) ------
 const C = {
@@ -27,20 +48,6 @@ const HERO_AT = [pathX(3) + 0.2, 3];   // where the hero starts: the subject a f
 // paperfolk plays a FIXED overview (play: false), so the fill prints only what that overview can see (H.inFrame) —
 // the ring past it the walking camera could bring is never built. The view is authored for 16:9; ?size=1080x1920
 // (a Reel) or ?aspect=1:1 renders the same world in another format (references/formats.md)
-// ---- 1b. quality tier: the kit's own documented ladder (references/three-js.md section 9). ?tier=high|med|low beats
-// a saved localStorage 'pf-tier' beats auto-detect ('high' until the post-start fps sampler steps it down, below).
-// The knobs: DPR cap, key-light shadow map, PaperPost MSAA samples, DOF taps; ambient life counts scale with it too.
-const TIER = (() => {
-  const t = new URLSearchParams(location.search).get('tier');
-  if (t === 'high' || t === 'med' || t === 'low') return t;
-  let s = null; try { s = localStorage.getItem('pf-tier'); } catch { /* storage blocked: auto-detect it is */ }
-  return s === 'med' || s === 'low' ? s : 'high';
-})();
-const Q = {
-  high: { dpr: 2, shadow: 4096, msaa: 4, taps: 40, fallers: 60, flyers: 8, clouds: 4 },   // the kit's own defaults
-  med: { dpr: 1.25, shadow: 2048, msaa: 2, taps: 24, fallers: 36, flyers: 5, clouds: 2 },
-  low: { dpr: 1, shadow: 1024, msaa: 0, taps: 16, fallers: 20, flyers: 3, clouds: 1 },
-}[TIER];
 const H = createHarness({ ground: C.ground, view: { pitch: 47, dist: 66, target: [2, 1.5, -6] }, bounds: { x0: -64, x1: 64, z0: -62, z1: 38 }, play: false,
   walkArea: { x0: -18, x1: 22, z0: -24, z1: 7 }, camBox: { x0: -1, x1: 5, z0: -8, z1: -4 }, subject: HERO_AT,
   dpr: Q.dpr, shadowMap: Q.shadow, msaa: Q.msaa, lens: { taps: Q.taps } });
@@ -345,10 +352,13 @@ if (flags.TEST) {
 if (!flags.TEST) {
   const life = createLife({ scene: H.scene, camera: H.camera, heroHeight: H.heroHeight, seed: 41, wind: [0.94, 0.34] });
   // ambient counts scale with the quality tier (Q, above: 60/36/20 fallers, 8/5/3 flyers, 4/2/1 cloud shadows) — the
-  // frame budget goes to the world itself; the flock and the chimney puffs are few enough to leave alone
-  life.fallers({ count: Q.fallers, cut: 'leaf', colors: [C.leafA, C.leafB, C.leafC, '#a8452a'], size: [0.2, 0.3], land: 9 });
+  // frame budget goes to the world itself; the flock and the chimney puffs are few enough to leave alone. The fallers
+  // and flyers kinds are kept (PF_LIFE): their update() re-derives counts from their day/night factors EVERY frame, so
+  // a live tier step-down (section 10) thins them without a rebuild. Cloud shadows have no count dial (their factor
+  // only fades opacity), so on a step-down they stay — four soft sheets are no frame cost to speak of.
+  PF_LIFE.push([life.fallers({ count: Q.fallers, cut: 'leaf', colors: [C.leafA, C.leafB, C.leafC, '#a8452a'], size: [0.2, 0.3], land: 9 }), 'fallers']);
   life.flock({ size: 5, height: 3.4, colors: ['#f6f1e6', '#e9e2d4'] });
-  life.flyers({ count: Q.flyers, colors: ['#fff6e0', '#f6c64a', '#ef8a3c'], anchors: LIFE.flowers.slice(0, 8), roam: 1.4 });
+  PF_LIFE.push([life.flyers({ count: Q.flyers, colors: ['#fff6e0', '#f6c64a', '#ef8a3c'], anchors: LIFE.flowers.slice(0, 8), roam: 1.4 }), 'flyers']);
   life.puffs({ at: LIFE.chimneys, perEmitter: 3, life: 4.5, rise: 0.45, size: [0.2, 0.45], colors: ['#f3e8d2', '#ece0c8'] });   // paper discs with a cut spiral, just above the chimney
   life.cloudShadows({ count: Q.clouds });
   for (const [h, roam] of LIFE.floaters) life.critter(h.group, { behaviour: 'float', roam });
@@ -786,6 +796,7 @@ const PFG = (() => {
     probe: () => FOLK.map((f) => { const v = visibility(f); return { id: f.id, kind: f.kind, shy: f.shy, x: +f.x.toFixed(1), z: +f.z.toFixed(1), clickClear: v.clear, facing: v.facing, onScreen: safeOnScreen(f), screen: project(f), found: f.found }; }),
     click: (id) => { const f = FOLK[id], [sx, sy] = project(f); dispatchEvent(new PointerEvent('pointerdown', { clientX: sx, clientY: sy })); dispatchEvent(new PointerEvent('pointerup', { clientX: sx, clientY: sy })); },
     fold: () => H.setOpen(!H.isOpen()),
+    toast,   // the HUD's paper note: the live tier step-down (section 10) speaks through it too
   };
 })();
 window.__paperfolk = PFG;
@@ -796,28 +807,32 @@ if (__loading) __loading.remove();
 
 H.start();
 
-// ---- 10. tier auto-detect: a self-contained rAF fps sampler (the harness loop is untouched) ------------------------------------
-// After the synchronous build, ~3 s of the LIVE frame rate says whether this machine holds the current tier. A slow
-// one steps down a single tier and reloads ONCE (?tiered= counts the reloads, so a loop is impossible); ?tier=
-// (the player's word) and a machine with no lower tier skip it; if rAF barely runs (some embedded browsers pause it),
-// it stays silent and keeps the tier. ?tier=high|med|low for manual testing.
+// ---- 10. live tier safety net (no reloads, nothing persisted): a light rAF monitor — it only runs while rAF runs.
+// Once the world has risen (~3 s), it watches the live frame rate over ~4 s windows; a window that held fewer than
+// ~10 frames (an embedded browser pauses rAF) is skipped silently, and a window under ~38 fps steps the tier down ONE
+// level in place via H.setQuality (DPR cap, MSAA, DOF taps, shadow map — re-allocated through the harness's own
+// resize path), thins the fallers and flyers to the lower tier's counts, and says so on the paper toast. At most once
+// (done); never under ?tier= (the player's word) or ?test (a review page); a machine that never starts its loop keeps
+// its build-time tier. ?tier=high|med|low for manual testing.
 (() => {
-  const q = new URLSearchParams(location.search);
-  if (q.has('tier')) return;                       // an explicit ?tier= beats auto-detect: never reload under it
-  const step = TIER === 'high' ? 'med' : TIER === 'med' ? 'low' : null;
-  const reloads = +(q.get('tiered') || 0);
-  if (!step || reloads >= 2) return;               // nothing lower, or both step-downs spent: stay put
-  let n = 0, t0 = null;
+  if (flags.TEST || !H.setQuality || new URLSearchParams(location.search).has('tier') || TIER === 'low') return;
+  const next = TIER === 'high' ? 'med' : 'low', SETTLE = 3000, WATCH = 4000, FLOOR = 38;
+  let n = 0, tA = null, done = false;
   requestAnimationFrame(function sample(t) {
-    if (t0 === null) { t0 = t; requestAnimationFrame(sample); return; }
+    if (done) return;
+    if (tA === null) { tA = t; requestAnimationFrame(sample); return; }
+    const dt = t - tA;
+    if (dt < SETTLE) { requestAnimationFrame(sample); return; }   // the opening rise: not the steady loop yet
     n++;
-    if (t - t0 < 3000) { requestAnimationFrame(sample); return; }
-    if (n < 10) return;                            // rAF is paused or barely runs here: keep the tier, say nothing
-    const fps = n / ((t - t0) / 1000);
-    if (fps < (TIER === 'high' ? 45 : 40)) {
-      try { localStorage.setItem('pf-tier', step); } catch { /* storage blocked: the reload still happens */ }
-      q.set('tiered', String(reloads + 1));
-      location.search = '?' + q.toString();        // one reload per step-down, seed and size params kept
+    if (dt < SETTLE + WATCH) { requestAnimationFrame(sample); return; }
+    if (n >= 10 && n / ((dt - SETTLE) / 1000) < FLOOR) {          // under the floor for the whole window: step down once
+      done = true;
+      H.setQuality(Q[next]);
+      for (const [k, key] of PF_LIFE) { const f = Q[next][key] / Q[TIER][key]; k.day = (k.day ?? 1) * f; k.night = (k.night ?? 1) * f; }
+      window.__paperfolk?.toast('a lighter print, for a smoother page');
+      return;
     }
+    n = 0; tA = t - SETTLE;                                       // a healthy window (or rAF barely ran): keep watching
+    requestAnimationFrame(sample);
   });
 })();

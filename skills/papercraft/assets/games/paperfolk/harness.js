@@ -498,6 +498,22 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
       }
     }
     H.setOpen = setOpen; H.isOpen = () => up; H.sound = sound;   // paperfolk: the game drives the fold, reads its state and plays collect sounds
+    // paperfolk: a LIVE quality step-down, no reload — the lower tier's knobs re-allocate through the harness's own
+    // resize() (pixel ratio, drawing buffer, post targets). dpr re-binds the cap frameBox() reads; the post target
+    // re-creates at the new sample count (dispose, as a window resize already does); o.taps flows into the DOF
+    // shader's TAPS define inside PaperPost.setSize (the kit's own size-class recompile); the shadow map re-creates
+    // at the new size (three itself re-reads mapSize whenever shadow.map is null) and fitShadow re-snaps to its texel.
+    H.setQuality = ({ dpr: d = null, msaa = null, taps = null, shadowMap = null } = {}) => {
+      if (d !== null) dpr = d;
+      if (msaa !== null) { post.rtScene.samples = msaa; post.rtScene.dispose(); }
+      if (taps !== null) post.o.taps = taps;
+      if (shadowMap !== null && lights.key.shadow.mapSize.x !== shadowMap) {
+        lights.key.shadow.mapSize.set(shadowMap, shadowMap);
+        if (lights.key.shadow.map) { lights.key.shadow.map.dispose(); lights.key.shadow.map = null; }
+        fitShadow(lights, shadowAt);
+      }
+      resize();
+    };
     // camera: looking down into the world (40-55 deg), long lens, gentle drift; drag to look around
     let drag = null;
     renderer.domElement.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; sound.unlock(); });
