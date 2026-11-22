@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>paperfolk — a pop-up hidden-object game</title>
+<meta name="description" content="Eight little paper folk hide in a pop-up world. Find them all — and fold the page flat to meet the shy ones.">
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #c9b27e; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: pointer; }
+
+  /* paper, ink, light: the HUD is a few cut-paper tabs, never chrome */
+  :root { --page: #efe0c2; --core: #fbf6ea; --ink: #5a3a28; --shadow: rgba(90, 58, 40, .45); }
+  * { box-sizing: border-box; }
+
+  #loading {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: var(--page); color: var(--ink); z-index: 10;
+    font: italic 17px/1.4 Georgia, serif; letter-spacing: .04em;
+  }
+
+  #hint {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    font: italic 14px/1.35 Georgia, 'Times New Roman', serif; color: #fff6e4; letter-spacing: .03em;
+    text-shadow: 0 1px 3px #5a3a20; opacity: .85; pointer-events: none; transition: opacity 1.6s ease; text-align: center;
+  }
+  #hint.fade { opacity: 0; }
+
+  #hud {
+    position: fixed; left: 18px; bottom: 18px; display: flex; align-items: center; gap: 10px;
+    pointer-events: none;
+  }
+  #folk-tokens { display: flex; gap: 6px; }
+  .token {
+    width: 22px; height: 28px; border: 1px solid rgba(90, 58, 40, .5);
+    background: var(--core); box-shadow: 0 1px 2px var(--shadow), inset 0 0 0 1px rgba(251, 246, 234, .8);
+    clip-path: polygon(0 6%, 4% 0, 96% 2%, 100% 8%, 99% 94%, 95% 100%, 5% 98%, 1% 93%);
+    transition: background .35s ease, transform .35s ease;
+  }
+  .token.shy { border-style: dashed; }
+  .token.found { background: var(--base); transform: translateY(-3px); }
+
+  #count {
+    font: 13px/1 Georgia, serif; letter-spacing: .08em; color: #fff6e4;
+    text-shadow: 0 1px 3px #5a3a20; padding-left: 4px;
+  }
+
+  #toast {
+    position: fixed; left: 50%; top: 22px; transform: translateX(-50%) translateY(-8px);
+    background: var(--core); color: var(--ink); border: 1px solid rgba(90, 58, 40, .45);
+    box-shadow: 0 2px 4px var(--shadow), 0 10px 22px -6px var(--shadow);
+    font: italic 14px/1.4 Georgia, serif; padding: 8px 18px;
+    opacity: 0; transition: opacity .4s ease, transform .4s ease; pointer-events: none;
+    clip-path: polygon(0 10%, 2% 0, 98% 3%, 100% 12%, 99% 92%, 97% 100%, 3% 97%, 1% 88%);
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  #endcard {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(90, 58, 40, .25); transition: opacity .5s ease;
+  }
+  #endcard.hidden { opacity: 0; pointer-events: none; }
+  #endcard .sheet {
+    background: var(--core); color: var(--ink); max-width: 420px; width: calc(100% - 48px);
+    padding: 34px 38px 28px; position: relative; text-align: center;
+    border: 1px solid rgba(90, 58, 40, .3);
+    box-shadow: 0 2px 4px var(--shadow), 0 24px 50px -10px var(--shadow);
+    font: 16px/1.65 Georgia, 'Times New Roman', serif;
+  }
+  #endcard .sheet::before {
+    content: ""; position: absolute; inset: 11px; pointer-events: none;
+    border: 1.5px solid rgba(90, 58, 40, .5); outline: 1px solid rgba(90, 58, 40, .25); outline-offset: 3px;
+  }
+  #endcard h1 { margin: 0 0 6px; font-weight: normal; font-size: 22px; letter-spacing: .14em; text-transform: uppercase; }
+  #endcard .names { font-style: italic; opacity: .8; font-size: 14px; margin: 4px 0 14px; }
+  #endcard .time { font-size: 34px; margin: 10px 0 18px; letter-spacing: .06em; }
+  #endcard button {
+    font: 14px/1 Georgia, serif; letter-spacing: .1em; text-transform: uppercase; color: var(--ink);
+    background: var(--page); border: 1px solid rgba(90, 58, 40, .5); padding: 10px 18px; margin: 0 6px;
+    cursor: pointer; box-shadow: 0 1px 0 var(--core), 2px 3px 8px -2px var(--shadow);
+    clip-path: polygon(0 8%, 3% 0, 97% 2%, 100% 10%, 99% 93%, 96% 100%, 4% 98%, 1% 90%);
+  }
+  #endcard button:hover { transform: translateY(-1px); }
+</style>
+<!-- three r187 vendored into assets/vendor/ (needs its sibling three.core.js); "papercraft/" points at the assets root -->
+<script type="importmap">{ "imports": { "three": "../../vendor/three.module.js", "papercraft/": "../../" } }</script>
+<script>
+  // the world is authored for a 16:9 frame; a narrower window would crop its edges and cut folk off. Render the full
+  // frame scaled to fit instead (letterboxed), keeping every seed param intact. Once is enough: the guard exits.
+  if (!/[?&]size=/.test(location.search) && innerWidth / innerHeight < 1.6) {
+    var q = location.search ? location.search + '&' : '?';
+    location.replace(location.pathname + q + 'size=1778x1000');
+  }
+</script>
+</head>
+<body>
+<div id="loading">the page is being printed…</div>
+<div id="hint">eight paperfolk hide in the world — click one to greet it<br>click the empty page to fold it flat and back again</div>
+<div id="hud"><div id="folk-tokens"></div><div id="count">0 of 8</div></div>
+<div id="toast"></div>
+<div id="endcard" class="hidden">
+  <div class="sheet">
+    <h1>all the folk are found</h1>
+    <div class="names" id="final-names"></div>
+    <div class="time" id="final-time">0:00</div>
+    <button id="shuffle">shuffle the folk</button>
+    <button id="stay">stay a while</button>
+  </div>
+</div>
+<script type="module" src="./game.js"></script>
+</body>
+</html>
