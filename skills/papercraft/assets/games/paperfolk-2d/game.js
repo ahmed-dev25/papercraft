@@ -381,6 +381,7 @@ const PFG = (() => {
   // unfound folk, hovers, and leaves. It is an overlay only (H.overlay), never a sprite: nothing can pick it.
   const bf = { active: false, phase: 'idle', t: 0, age: 0, op: 0, target: null, tight: false, manual: false, lastTarget: null, leftAt: -1e9, x: 0, y: 0, from: null, to: null, away: null };
   const stamps = [], scraps = [];   // the found flourish: an ink print per collect, and a few flying card scraps
+  let marker = null, tag = null;    // the manual hint's ground marker (ring + prize flag) and the found name tag (overlay only)
   let hintStuck = 0, hintNext = 30;
   let hintClock = 0, hintLastTap = -1e9;
   const shyWords = 'a shy one — fold the page flat to see its face';
@@ -388,13 +389,70 @@ const PFG = (() => {
     if (bf.target) { bf.lastTarget = bf.target; bf.leftAt = hintClock; }   // remember the clue for a repeat tap
     bf.active = false; bf.phase = 'idle'; bf.target = null; bf.op = 0;
   }
-  function hintTarget() {   // the same target choice the stuck hint makes (and the manual hint reuses): nearest unfound
-    const unfound = FOLK.filter((f) => !f.found);                          // folk the page shows; when the page shows none,
-    if (!unfound.length) return null;                                      // the nearest unfound overall
-    const seen = unfound.filter((f) => safeOnScreen(f) && visibility(f).clear);
-    const pool = seen.length ? seen : unfound;
-    let target = pool[0], best = Infinity;
-    for (const f of pool) { const d = Math.hypot(f.x - HERO_AT[0], f.z - HERO_AT[1]); if (d < best) { best = d; target = f; } }
+  // ---- hint v2 helpers: a printed marker on the page, a paper chime, and the found name tag -------------------------
+  // The marker and tag are overlay drawings (H.overlay), so they can never be picked: no sprite, no draw-list entry.
+  const easeOutBack = (u) => 1 + 2.70158 * Math.pow(u - 1, 3) + 1.70158 * Math.pow(u - 1, 2);
+  function besideSpot(f, off, toward = 0, sidesOnly = false) {   // the side whose projection keeps the most frame room
+    const c = cvEl();
+    const cands = [[f.x - off, f.z - toward], [f.x + off, f.z - toward]];   // never between the folk and the camera
+    if (!sidesOnly) cands.push([f.x, f.z + off]);                          // or behind it, still visible
+    let best = null, bestScore = -Infinity;
+    for (const [x, z] of cands) {
+      const [px, py] = H.proj(x, 1.2, z);
+      const score = Math.min(px, c.width - px) * 2 + Math.min(py, c.height - py) * 0.35;
+      if (score > bestScore) { bestScore = score; best = [x, z]; }
+    }
+    return { x: best[0], z: best[1] };
+  }
+  function clearMarker() { marker = null; }
+  function plantMarker(f, tight) {
+    const off = tight ? 1.0 : 1.6, spot = besideSpot(f, off, 0, false);
+    marker = { t: 0, target: f, tight: !!tight, x: f.x, z: f.z, flagX: spot.x, flagZ: spot.z };
+  }
+  function stepMarker(dt) {
+    if (!marker) return;
+    marker.t += dt;
+    if (marker.t >= 7.6) marker = null;
+  }
+  function chime() {   // two paper-soft notes 200 ms apart through the sound engine's bus; quiet, under a flap
+    const snd = H.sound;
+    if (!snd) return;
+    try {
+      const ctx = snd.ctx || snd.unlock();
+      if (!ctx || snd.muted || ctx.state !== 'running') return;
+      const bus = (snd.chain && snd.chain.bus) || ctx.destination, t0 = ctx.currentTime + 0.02;
+      for (const [freq, at] of [[587.33, 0], [880, 0.2]]) {
+        const t = t0 + at, osc = ctx.createOscillator(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+        osc.type = 'triangle'; osc.frequency.value = freq;
+        lp.type = 'lowpass'; lp.frequency.value = 2100; lp.Q.value = 0.4;
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+        osc.connect(lp); lp.connect(g); g.connect(bus);
+        osc.start(t); osc.stop(t + 0.34);
+      }
+    } catch { /* audio-blocked browsers get the silent version */ }
+  }
+  function plantTag(f) {
+    const spot = besideSpot(f, 1.4, 0.5, true);
+    tag = { id: f.id, kind: f.kind, t: 0, x: spot.x, z: spot.z };
+  }
+  function stepTag(dt) {
+    if (!tag) return;
+    tag.t += dt;
+    if (tag.t >= 1.9) tag = null;
+  }
+  function hintTarget() {   // prefer a clear, comfortably in-frame folk near the middle; never a blurry edge if better exists
+    const unfound = FOLK.filter((f) => !f.found);
+    if (!unfound.length) return null;
+    const r = cvEl().getBoundingClientRect();
+    const centre = (f) => { const [sx, sy] = project(f); return Math.hypot((sx - (r.left + r.width / 2)) / (r.width / 2), (sy - (r.top + r.height / 2)) / (r.height / 2)); };
+    const inFrame = (f) => { const [sx, sy] = project(f), m = 0.12; return sx > r.left + r.width * m && sx < r.right - r.width * m && sy > r.top + r.height * m && sy < r.bottom - r.height * m; };
+    const centreBest = (pool) => pool.reduce((a, f) => (centre(f) < centre(a) ? f : a));
+    const seen = unfound.filter((f) => inFrame(f) && visibility(f).clear);
+    if (seen.length) return centreBest(seen);
+    const onScreen = unfound.filter(inFrame);
+    if (onScreen.length) return centreBest(onScreen);
+    let target = unfound[0], best = Infinity;
+    for (const f of unfound) { const d = Math.hypot(f.x - HERO_AT[0], f.z - HERO_AT[1]); if (d < best) { best = d; target = f; } }
     return target;
   }
   function startHint(tight = false, target = null, manual = false) {
@@ -412,6 +470,7 @@ const PFG = (() => {
     bf.to = { x: hx, y: hy };
     bf.away = { x: enterLeft ? c.width + 26 : -26, y: Math.max(c.height * 0.12, hy - 70) };
     bf.target = target; bf.tight = tight; bf.manual = manual; bf.active = true; bf.phase = 'in'; bf.t = 0; bf.age = 0; bf.op = 1; bf.x = bf.from.x; bf.y = bf.from.y;
+    if (manual) { plantMarker(target, tight); chime(); }   // the unambiguous page marker and its two quiet notes
     return true;
   }
   // a user-triggered hint: the tab (index.html's inline wiring calls this) or window.__paperfolk.hint(). One tap sends
@@ -461,7 +520,7 @@ const PFG = (() => {
   }
   H.onStep((time, dt) => {
     hintClock += dt;
-    stepButterfly(dt);
+    stepButterfly(dt); stepMarker(dt); stepTag(dt);
     if (!started || done || FOLK.some((f) => f.found)) return;   // the automatically triggered getting-started hint only
     hintStuck += dt;
     if (hintStuck >= hintNext) { startHint(); hintNext += 35; }
@@ -471,6 +530,36 @@ const PFG = (() => {
   // no extra draw list), so it is visible standing and folded; the scraps are a few screen-space card chips.
   H.overlay((g) => {
     const c = cvEl(), sinP = Math.sin(H.view.pitch * Math.PI / 180);
+    if (marker) {   // the manual hint's ground marker: a bold dashed ring + a waving prize flag, in 0.2 s / out 0.6 s
+      const t = marker.t;
+      const a = t < 0.2 ? t / 0.2 : t > 7 ? Math.max(0, 1 - (t - 7) / 0.6) : 1;
+      if (a > 0.01) {
+        const r = marker.tight ? 1.2 : 1.9;
+        const [rx, ry] = H.proj(marker.x, 0.01, marker.z);
+        const ruk = Math.abs(H.proj(marker.x + 1, 0, marker.z)[0] - H.proj(marker.x, 0, marker.z)[0]) || 8;
+        g.save(); g.translate(rx, ry); g.scale(1, sinP); g.globalAlpha = a * 0.95; g.lineCap = 'round';
+        g.strokeStyle = 'rgba(246,236,212,.92)'; g.lineWidth = Math.max(1.5, ruk * 0.30);
+        g.beginPath(); g.arc(0, 0, r * ruk, 0, Math.PI * 2); g.stroke();
+        g.strokeStyle = C.ink; g.lineWidth = Math.max(1, ruk * 0.16); g.setLineDash([ruk * 0.34, ruk * 0.24]);
+        g.beginPath(); g.arc(0, 0, r * ruk, 0.36, Math.PI * 2 + 0.3); g.stroke(); g.setLineDash([]);
+        g.restore();
+        const [bx, by] = H.proj(marker.flagX, 0.02, marker.flagZ);
+        const fuk = Math.abs(H.proj(marker.flagX + 1, 0, marker.flagZ)[0] - H.proj(marker.flagX, 0, marker.flagZ)[0]) || 8;
+        const top = by - 2.9 * fuk, wave = Math.sin(t * 2.3) * fuk * 0.07, sgn = marker.flagX < marker.x ? -1 : 1;
+        g.save(); g.globalAlpha = a; g.lineCap = 'round';
+        g.strokeStyle = C.ink; g.lineWidth = Math.max(2, fuk * 0.12); g.beginPath(); g.moveTo(bx, by); g.lineTo(bx, top); g.stroke();
+        g.strokeStyle = '#eddcb9'; g.lineWidth = Math.max(1, fuk * 0.08); g.beginPath(); g.moveTo(bx, by); g.lineTo(bx, top); g.stroke();
+        g.beginPath(); g.arc(bx, top, fuk * 0.055, 0, 7); g.fillStyle = '#eddcb9'; g.fill(); g.strokeStyle = C.ink; g.lineWidth = Math.max(1, fuk * 0.025); g.stroke();
+        g.beginPath(); g.moveTo(bx, top + 0.12 * fuk);
+        g.quadraticCurveTo(bx + sgn * 0.55 * fuk, top + 0.04 * fuk + wave, bx + sgn * 1.2 * fuk, top + 0.3 * fuk + wave);
+        g.quadraticCurveTo(bx + sgn * 0.55 * fuk, top + 0.52 * fuk + wave, bx, top + 0.72 * fuk);
+        g.closePath(); g.fillStyle = '#f8eed8'; g.fill(); g.strokeStyle = C.ink; g.lineWidth = Math.max(1, fuk * 0.04); g.stroke();
+        g.beginPath();
+        for (let i = 0; i < 10; i++) { const q = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? 0.055 * fuk : 0.13 * fuk; g.lineTo(bx + sgn * 0.3 * fuk + Math.cos(q) * rr, top + 0.37 * fuk + Math.sin(q) * rr); }
+        g.closePath(); g.fillStyle = '#c9542b'; g.fill();
+        g.restore();
+      }
+    }
     for (const s of stamps) {   // the ink "found" print: dashed ring + check, ~1.4 units across in its plane
       const a = Math.min(1, s.t / 0.25) * 0.8;
       if (a <= 0.01) continue;
@@ -492,9 +581,30 @@ const PFG = (() => {
       g.strokeStyle = 'rgba(90,58,40,.35)'; g.lineWidth = Math.max(1, s.w * 0.06); g.strokeRect(-s.w / 2, -s.h / 2, s.w, s.h);
       g.restore();
     }
+    if (tag && tag.t < 1.9) {   // the found name tag: a little price card on a stand, hinged up 0.25 s, held 1.4 s, folded 0.25 s
+      const t = tag.t;
+      const e = t < 0.25 ? Math.max(0.02, easeOutBack(t / 0.25)) : t < 1.65 ? 1 : Math.max(0.02, 1 - (t - 1.65) / 0.25);
+      const [bx, by] = H.proj(tag.x, 0.02, tag.z);
+      const tuk = Math.abs(H.proj(tag.x + 1, 0, tag.z)[0] - H.proj(tag.x, 0, tag.z)[0]) || 8;
+      const text = 'a ' + tag.kind + '!', fs = Math.max(10, tuk * 0.75);
+      g.font = 'italic 700 ' + fs + 'px Georgia, "Times New Roman", serif';
+      const tw = g.measureText(text).width;
+      const cardW = Math.max(tuk * 2.4, tw + tuk * 0.6), cardH = tuk * 1.15;
+      const cx = Math.min(c.width - cardW / 2 - 8, Math.max(cardW / 2 + 8, bx));
+      g.save(); g.translate(cx, by); g.lineCap = 'round';
+      g.fillStyle = 'rgba(58,36,18,.16)'; g.beginPath(); g.ellipse(0, 0, tuk * 0.34, tuk * 0.08, 0, 0, 7); g.fill();
+      g.strokeStyle = C.ink; g.lineWidth = Math.max(2, tuk * 0.1); g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -1.15 * tuk); g.stroke();
+      g.strokeStyle = '#e4cfa8'; g.lineWidth = Math.max(1, tuk * 0.065); g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -1.15 * tuk); g.stroke();
+      g.translate(0, -1.15 * tuk); g.scale(1, e);
+      g.fillStyle = '#fbf3df'; g.fillRect(-cardW / 2, -cardH, cardW, cardH);
+      g.strokeStyle = C.ink; g.lineWidth = Math.max(1, tuk * 0.04); g.strokeRect(-cardW / 2, -cardH, cardW, cardH);
+      g.strokeStyle = 'rgba(58,36,18,.5)'; g.lineWidth = Math.max(1, tuk * 0.018); g.strokeRect(-cardW / 2 + tuk * 0.12, -cardH + tuk * 0.12, cardW - tuk * 0.24, cardH - tuk * 0.24);
+      g.fillStyle = C.ink; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 0, -cardH / 2 + tuk * 0.02);
+      g.restore();
+    }
     g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
     if (!bf.active || bf.op <= 0.01) return;
-    const s = Math.max(7, Math.min(16, c.width / 100));
+    const s = Math.max(10, Math.min(22, c.width / 72));   // 1.4x the old butterfly: the clue must read at a glance
     const flap = 0.25 + 0.6 * (0.5 + 0.5 * Math.sin(bf.age * 18));
     const bob = Math.sin(bf.age * 3.2) * s * 0.12;
     g.save();
@@ -519,7 +629,8 @@ const PFG = (() => {
   // a tiny debug readout for the main session's stepped-time tests (the game's public hooks keep their shapes; tight and
   // manual are additive: was this hint the closer second tap, and was it asked for rather than the 30 s stuck hint?)
   window.__paperfolkHint = () => ({ active: bf.active, phase: bf.phase, target: bf.target ? bf.target.id : null, stuck: +hintStuck.toFixed(2), next: hintNext, tight: !!bf.tight, manual: !!bf.manual,
-    hover: bf.active && bf.to ? (() => { const [hx, hy] = toCss(bf.to.x, bf.to.y); return { x: hx, y: hy }; })() : null });
+    hover: bf.active && bf.to ? (() => { const [hx, hy] = toCss(bf.to.x, bf.to.y); return { x: hx, y: hy }; })() : null,
+    marker: marker ? { active: true, target: marker.target.id, tight: !!marker.tight, x: +marker.flagX.toFixed(2), z: +marker.flagZ.toFixed(2) } : null });
 
   // ---- picking: a short click greets a folk; an empty click falls through to the harness and folds the world --------
   const pickFolk = (cx, cy) => {
@@ -595,9 +706,11 @@ const PFG = (() => {
 
   function collect(f) {
     f.found = true;
-    hintStuck = 0; if (bf.active) hideButterfly();   // the hint's job is done: no butterfly for a found world
+    hintStuck = 0; if (bf.active) hideButterfly();                  // the butterfly's job is done: no hint for a found world
+    if (marker && marker.target === f) clearMarker();               // a marker never rings a folk already found
     if (H.sound) H.sound.flap({ size: 0.5, up: true, key: 'folk' + f.id });
     foundFlourish(f);
+    plantTag(f);   // the name tag itself reports the find: no toast for collects
     const tok = $('tok' + f.id); if (tok) tok.classList.add('found');
     const n = FOLK.filter((x) => x.found).length;
     const count = $('count');
@@ -605,7 +718,6 @@ const PFG = (() => {
       count.textContent = n + ' of ' + FOLK.length;
       count.classList.remove('ping'); void count.offsetWidth; count.classList.add('ping');   // a brief ink ring on the count
     }
-    toast({ mouse: 'a mouse!', snail: 'a snail!', beetle: 'a beetle!', hedgehog: 'a hedgehog!', frog: 'a frog!', robin: 'a robin!', moth: 'a moth!', fish: 'a fish!' }[f.kind] + (f.shy ? ' (the shy one)' : ''));
     if (n === FOLK.length) win();
   }
   function win() {
@@ -684,7 +796,8 @@ const PFG = (() => {
   // ---- the test hook (?seed=N drives it): positions, screen places, visibility and synthetic clicks ------------------
   return {
     ver: 1, seed: SEED, folk: FOLK,
-    state: () => ({ seed: SEED, foldOpen: H.isOpen ? H.isOpen() : null, found: FOLK.filter((f) => f.found).length, total: FOLK.length, done, stamps: stamps.length }),
+    state: () => ({ seed: SEED, foldOpen: H.isOpen ? H.isOpen() : null, found: FOLK.filter((f) => f.found).length, total: FOLK.length, done, stamps: stamps.length,
+      tag: tag ? { active: true, id: tag.id } : null }),
     // clickClear: standing coverage (the 2D sibling of the 3D probe rays); facing: +1 the print is toward the camera,
     // -1 a turned card; screen: CSS px of the folk's VISIBLE card centre, in the world's current fold state
     probe: () => FOLK.map((f) => { const v = visibility(f); return { id: f.id, kind: f.kind, shy: f.shy, x: +f.x.toFixed(1), z: +f.z.toFixed(1), clickClear: v.clear, facing: f.shy ? -1 : 1, onScreen: safeOnScreen(f), screen: project(f), found: f.found, starter: !!f.starter }; }),
