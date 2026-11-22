@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>papercraft — pop-up worlds</title>
+<title>Build Quietly — paper games</title>
+<meta name="description" content="Small, handmade games made of paper, ink and light. Play in your browser.">
 <link rel="icon" href="data:,">
 <style>
   /* paper, ink, light: no images, no scripts, nothing loads from anywhere else */
@@ -11,7 +12,7 @@
     --page: #efe0c2;      /* cream cardstock */
     --page-core: #fbf6ea; /* lighter cream core */
     --ink: #5a3a28;       /* the world's dark ink, never black */
-    --shadow: #7a5a3a;    /* a warm shadow the ground would take */
+    --shadow: rgba(90, 58, 40, .45);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; min-height: 100%; }
@@ -20,82 +21,92 @@
     color: var(--ink);
     font: 16px/1.65 Georgia, 'Times New Roman', serif;
     display: flex; align-items: center; justify-content: center;
-    padding: 32px 16px;
+    padding: 40px 16px;
   }
-  /* the sheet: a printed page with a neatline, thrown on the table */
   .sheet {
-    max-width: 620px; width: 100%;
+    max-width: 640px; width: 100%;
     background: var(--page-core);
-    padding: 44px 48px 40px;
-    box-shadow: 0 1px 2px rgba(90, 58, 40, .25), 0 12px 30px -8px rgba(90, 58, 40, .38);
+    padding: 46px 50px 34px;
+    box-shadow: 0 1px 2px rgba(90, 58, 40, .25), 0 14px 34px -10px var(--shadow);
     border: 1px solid rgba(90, 58, 40, .18);
     position: relative;
   }
-  /* hand-inked neatline: slightly uneven, darker inside */
   .sheet::before {
     content: ""; position: absolute; inset: 14px; pointer-events: none;
-    border: 1.5px solid rgba(90, 58, 40, .55);
-    outline: 1px solid rgba(90, 58, 40, .28); outline-offset: 3px;
+    border: 1.5px solid rgba(90, 58, 40, .5);
+    outline: 1px solid rgba(90, 58, 40, .24); outline-offset: 3px;
+  }
+  .brand {
+    text-align: center; font-size: 13px; letter-spacing: .34em; text-transform: uppercase;
+    opacity: .65; margin: 0 0 6px;
   }
   h1 {
     margin: 0 0 4px; text-align: center;
-    font-weight: normal; font-size: 30px; letter-spacing: .14em; text-transform: uppercase;
+    font-weight: normal; font-size: 30px; letter-spacing: .13em; text-transform: uppercase;
   }
-  .sub { text-align: center; font-style: italic; opacity: .78; margin: 0 0 30px; font-size: 15px; }
-  .rule { height: 1px; background: linear-gradient(90deg, transparent, rgba(90, 58, 40, .5), transparent); margin: 22px 0; }
-  a.card {
-    display: block; text-decoration: none; color: inherit;
-    padding: 15px 18px 14px; margin: 14px 4px;
+  .sub { text-align: center; font-style: italic; opacity: .72; margin: 0 0 30px; font-size: 15px; }
+  .rule { height: 1px; background: linear-gradient(90deg, transparent, rgba(90, 58, 40, .45), transparent); margin: 24px 0 20px; }
+  .label { font-size: 12px; letter-spacing: .26em; text-transform: uppercase; opacity: .6; margin: 0 0 12px; }
+
+  a.game {
+    display: flex; align-items: center; gap: 18px; text-decoration: none; color: inherit;
+    padding: 18px 20px; margin: 14px 2px;
     background: var(--page);
     border: 1px solid rgba(90, 58, 40, .35);
-    box-shadow: 0 1px 0 var(--page-core), 2px 3px 8px -2px rgba(90, 58, 40, .30);
+    box-shadow: 0 1px 0 var(--page-core), 2px 4px 10px -3px var(--shadow);
     transition: transform .18s ease, box-shadow .18s ease;
   }
-  a.card:hover { transform: translateY(-2px); box-shadow: 0 1px 0 var(--page-core), 4px 8px 14px -3px rgba(90, 58, 40, .42); }
-  a.card .t { display: block; font-size: 15px; letter-spacing: .1em; text-transform: uppercase; }
-  a.card .d { display: block; font-style: italic; font-size: 14px; opacity: .78; margin-top: 3px; }
-  .moods { text-align: center; font-size: 14px; font-style: italic; opacity: .8; margin-top: 20px; }
-  .moods a { color: inherit; }
-  footer { text-align: center; font-size: 13px; font-style: italic; opacity: .6; margin-top: 26px; }
+  a.game:hover { transform: translateY(-2px); box-shadow: 0 1px 0 var(--page-core), 5px 10px 18px -4px var(--shadow); }
+  a.game .no {
+    flex: 0 0 auto; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
+    border: 1.5px solid rgba(90, 58, 40, .5); background: var(--page-core);
+    font-size: 15px; letter-spacing: .08em;
+    clip-path: polygon(0 8%, 5% 0, 96% 3%, 100% 10%, 98% 92%, 94% 100%, 4% 97%, 1% 88%);
+  }
+  a.game .body { flex: 1 1 auto; }
+  a.game .t { display: block; font-size: 17px; letter-spacing: .12em; text-transform: uppercase; }
+  a.game .d { display: block; font-style: italic; font-size: 14px; opacity: .78; margin-top: 3px; line-height: 1.5; }
+  a.game .go {
+    flex: 0 0 auto; font-size: 13px; letter-spacing: .18em; text-transform: uppercase;
+    border-bottom: 1px solid rgba(90, 58, 40, .5); padding-bottom: 1px;
+  }
+  footer { text-align: center; font-size: 13px; font-style: italic; opacity: .55; margin-top: 26px; }
+  @media (max-width: 560px) {
+    .sheet { padding: 34px 26px 26px; }
+    a.game { gap: 12px; padding: 14px 14px; }
+    a.game .no { width: 36px; height: 36px; font-size: 13px; }
+    a.game .go { display: none; }
+  }
 </style>
 </head>
 <body>
   <main class="sheet">
-    <h1>papercraft</h1>
-    <p class="sub">pop-up worlds, folded in a browser</p>
-
-    <a class="card" href="games/paperfolk/">
-      <span class="t">paperfolk — the game</span>
-      <span class="d">eight little paper creatures hide in a pop-up world; fold the page flat to meet the shy ones</span>
-    </a>
-    <a class="card" href="games/paperfolk-2d/">
-      <span class="t">paperfolk — the 2D edition</span>
-      <span class="d">the same game in Canvas 2D: no WebGL needed, builds in seconds, runs on any laptop or phone</span>
-    </a>
-    <a class="card" href="templates/popup-3d/">
-      <span class="t">The countryside — three.js</span>
-      <span class="d">a pop-up world seen from inside: walk with arrows / WASD, click to fold it flat</span>
-    </a>
-    <a class="card" href="templates/popup-2d/">
-      <span class="t">The countryside — Canvas 2D</span>
-      <span class="d">the same paper without WebGL; runs anywhere, phones included</span>
-    </a>
-    <a class="card" href="templates/popup-3d/structures.html">
-      <span class="t">Structure types sampler</span>
-      <span class="d">every fold in the kit as a named specimen: crosses, V-folds, box folds, platforms</span>
-    </a>
+    <p class="brand">Build Quietly</p>
+    <h1>Paper games</h1>
+    <p class="sub">small handmade worlds, made of paper, ink and light — play in your browser</p>
 
     <div class="rule"></div>
+    <p class="label">pick a game</p>
 
-    <p class="moods">
-      the world at another hour or in another frame —
-      <a href="templates/popup-3d/?mood=golden">golden</a> ·
-      <a href="templates/popup-3d/?mood=dusk">dusk</a> ·
-      <a href="templates/popup-3d/?mood=night">night</a> ·
-      <a href="templates/popup-3d/?aspect=9:16">vertical</a>
-    </p>
+    <a class="game" href="games/paperfolk/">
+      <span class="no">01</span>
+      <span class="body">
+        <span class="t">Paperfolk</span>
+        <span class="d">a pop-up hidden-object game — eight little paper creatures hide in a diorama. Find them all, and fold the page flat to meet the shy ones.</span>
+      </span>
+      <span class="go">play</span>
+    </a>
 
-    <footer>everything on this page is made of paper, ink and light — no images, no sounds, no server</footer>
+    <a class="game" href="games/paperfair/">
+      <span class="no">02</span>
+      <span class="body">
+        <span class="t">Paperfair</span>
+        <span class="d">a pop-up carnival shooting gallery — paper targets fold flat when hit, a cork pop-gun, and 60-second rounds. Beat your best.</span>
+      </span>
+      <span class="go">play</span>
+    </a>
+
+    <footer>made of paper, ink and light — no installs, no accounts</footer>
   </main>
 </body>
 </html>
