@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>crease — a paper folding puzzle</title>
+<meta name="description" content="A page from a naturalist's book of folded paper specimens. Drag the flaps of a printed card across their creases until the folded silhouette matches the shaped window.">
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --ink: #3a2718;
+    --ink-soft: rgba(58, 39, 24, .62);
+    --page: #efe0c2;
+    --core: #f8efd9;
+    --accent: #8a3d2a;
+    --moss: #5f6b3a;
+    --teal: #1f4348;
+    --brass: #b08a4a;
+    --shadow: rgba(58, 39, 24, .35);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #2b211b;
+  }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #stage {
+    position: fixed;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: grab;
+    z-index: 0;
+  }
+  #stage.dragging { cursor: grabbing; }
+  #ui {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    pointer-events: none;
+    color: var(--ink);
+  }
+  .hud {
+    position: absolute;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    font: 600 11px/1 Georgia, 'Times New Roman', serif;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: rgba(58, 39, 24, .72);
+  }
+  .hud .right { text-align: right; }
+  .dots {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+  }
+  .dot {
+    display: block;
+    width: 5px;
+    height: 5px;
+    border: 1px solid rgba(58, 39, 24, .6);
+    border-radius: 50%;
+  }
+  .dot.on {
+    background: rgba(58, 39, 24, .84);
+    border-color: rgba(58, 39, 24, .84);
+  }
+  .dot.done {
+    background: rgba(95, 107, 58, .78);
+    border-color: rgba(95, 107, 58, .78);
+  }
+  .plate {
+    position: absolute;
+    text-align: center;
+    font: 600 11px/1.25 Georgia, 'Times New Roman', serif;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: rgba(58, 39, 24, .76);
+  }
+  .plate::before {
+    content: '';
+    display: block;
+    width: 34px;
+    height: 1px;
+    margin: 0 auto 7px;
+    background: rgba(58, 39, 24, .32);
+  }
+  .caption {
+    position: absolute;
+    text-align: center;
+    font: italic 12px/1.3 Georgia, 'Times New Roman', serif;
+    color: rgba(58, 39, 24, .54);
+  }
+  .hint {
+    position: absolute;
+    text-align: center;
+    font: italic 12px/1.35 Georgia, 'Times New Roman', serif;
+    color: rgba(58, 39, 24, .62);
+    opacity: 1;
+    transition: opacity .8s ease;
+  }
+  .hint.faded { opacity: 0; }
+  .tools {
+    position: absolute;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 18px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    pointer-events: none;
+  }
+  .btn {
+    pointer-events: auto;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 8px;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid rgba(58, 39, 24, .55);
+    border-radius: 0;
+    color: rgba(58, 39, 24, .86);
+    font: 13px/1 Georgia, 'Times New Roman', serif;
+    letter-spacing: .06em;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .btn:hover {
+    color: #1f140d;
+    border-bottom-color: #1f140d;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn:focus-visible { outline: 2px dashed #3a2718; outline-offset: 4px; }
+  .btn:disabled {
+    opacity: .35;
+    cursor: default;
+    border-bottom-color: rgba(58, 39, 24, .22);
+  }
+  .btn.next {
+    display: none;
+    color: #f4e6c8;
+    background: #3a2718;
+    border: 1px solid #21150c;
+    border-bottom: 1px solid rgba(239, 224, 194, .48);
+    padding: 0 15px;
+    min-height: 44px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    box-shadow: 0 2px 0 rgba(33, 21, 12, .3);
+  }
+  .btn.next:hover { color: #fff6e2; background: #2e1e12; }
+  .btn.next.show { display: inline-flex; align-items: center; justify-content: center; }
+  #loading {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--page);
+  }
+  .loading-sheet {
+    max-width: 80vw;
+    padding: 18px 30px;
+    background: var(--core);
+    border: 1px solid rgba(58, 39, 24, .4);
+    box-shadow: 0 2px 4px var(--shadow), 0 16px 34px -10px var(--shadow);
+    font: italic 16px/1.4 Georgia, 'Times New Roman', serif;
+    letter-spacing: .03em;
+    text-align: center;
+  }
+  @media (max-width: 760px) {
+    .hud { font-size: 10px; letter-spacing: .13em; }
+    .plate { font-size: 10px; letter-spacing: .15em; }
+    .caption { font-size: 11px; }
+    .hint { font-size: 11px; }
+    .tools { gap: 14px; }
+    .btn { font-size: 13px; padding: 0 6px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hint { transition: none; }
+    .btn { transition: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="stage" role="application" aria-label="crease, a paper folding puzzle. Drag the brass tab on a flap across its dashed crease; the folded card must match the shape cut out of the page above."></canvas>
+
+<div id="ui">
+  <div id="hud" class="hud" aria-live="polite">
+    <span id="page-num">page 1 of 3</span>
+    <span id="dots" class="dots"></span>
+    <span id="fold-count" class="right">folds 0</span>
+  </div>
+  <div id="plate" class="plate">plate I · the moth</div>
+  <div id="caption" class="caption">the shape to make</div>
+  <div id="hint" class="hint" role="note"></div>
+  <div id="tools" class="tools">
+    <button id="unfold" class="btn" type="button" aria-label="unfold the last fold">unfold</button>
+    <button id="restart" class="btn" type="button" aria-label="restart this page">restart</button>
+    <button id="next" class="btn next" type="button" aria-label="go to the next page">next page</button>
+  </div>
+</div>
+
+<div id="loading"><div class="loading-sheet">printing the plates…</div></div>
+
+<script type="importmap">{ "imports": { "papercraft/": "../../" } }</script>
+<script type="module" src="./game.js"></script>
+</body>
+</html>
