@@ -204,8 +204,8 @@
   html.pf-mobile #endcard .share-links { gap: 0 14px; }
   html.pf-mobile #endcard .share-links a, html.pf-mobile #endcard .share-links button { min-height: 44px; font-size: 13px; }
 
-  /* the corner muzzle: a small torn paper flash, shown only when the toy gun itself is hidden (a narrow phone) — the
-     shot still leaves the same place and still reads as paper. */
+  /* the corner muzzle: a small torn paper flash kept as a fallback for a page that hides the toy; with the phone gun
+     always visible, the 3D muzzle puff is the usual flash. */
   #muzzle {
     position: fixed; right: calc(16px + env(safe-area-inset-right, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px));
     width: 52px; height: 38px; z-index: 26; pointer-events: none; opacity: 0;
@@ -221,6 +221,60 @@
     100% { opacity: 0; transform: scale(1.4) rotate(-3deg); }
   }
   @media (prefers-reduced-motion: reduce) { #muzzle.flash { animation: none; opacity: .9; } }
+
+  /* hit juice: a floating ink number on a torn cream chip. A DOM layer above the canvas and below the end card:
+     crisp serif text, no canvas texture, never any glow. Eight nodes are reused, so a busy wave costs nothing. */
+  #popups { position: fixed; inset: 0; z-index: 25; pointer-events: none; overflow: hidden; }
+  .pf-pop {
+    position: absolute; left: 0; top: 0; opacity: 0;
+    padding: 5px 11px 4px; white-space: nowrap;
+    color: var(--ink); background: linear-gradient(174deg, #fbf6ea 0%, #f1e1bd 58%, #e7d5ae 100%);
+    font: italic 600 19px/1 Georgia, 'Times New Roman', serif; letter-spacing: .015em;
+    box-shadow: 0 1px 0 rgba(251,246,234,.9) inset, 0 2px 3px rgba(51,33,29,.34), 0 8px 15px -7px rgba(51,33,29,.55);
+    clip-path: polygon(3% 2%, 21% 0, 47% 4%, 71% 0, 97% 3%, 100% 27%, 96% 51%, 100% 77%, 95% 100%, 70% 96%, 45% 100%, 19% 95%, 1% 99%, 4% 73%, 0 47%, 4% 22%);
+    transform: translate(-50%, -50%) scale(.9); transform-origin: 50% 70%;
+    will-change: transform, opacity;
+  }
+  .pf-pop .mult { margin-left: .28em; font-style: normal; font-size: .72em; color: var(--coral); }
+  .pf-pop.live { animation: pf-pop-rise .8s cubic-bezier(.18,.72,.25,1) forwards; }
+  @keyframes pf-pop-rise {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(.72) rotate(-2.2deg); }
+    13% { opacity: 1; transform: translate(-50%, -57%) scale(1.13) rotate(1.4deg); }
+    28% { transform: translate(-50%, -72%) scale(1) rotate(0deg); }
+    100% { opacity: 0; transform: translate(-50%, calc(-50% - 40px)) scale(.98) rotate(-1.1deg); }
+  }
+
+  /* the scorecard gets a quick ink bump on every hit (no shake, no colour flash) */
+  #score { transform-origin: 12% 62%; }
+  #score.bump { animation: pf-score-bump .35s cubic-bezier(.2,.8,.3,1); }
+  @keyframes pf-score-bump {
+    0% { transform: scale(1) rotate(0deg); }
+    34% { transform: scale(1.18) rotate(-1.6deg); }
+    68% { transform: scale(.97) rotate(.4deg); }
+    100% { transform: scale(1) rotate(0deg); }
+  }
+
+  /* NEW BEST: an inked paper stamp beside the end-card score, clear of the share strip below */
+  #newbest {
+    position: absolute; top: 88px; right: 20px; z-index: 1;
+    padding: 6px 10px 5px; pointer-events: none; opacity: 0;
+    color: var(--coral); background: rgba(251, 246, 234, .58);
+    border: 2px solid rgba(207, 79, 62, .88); outline: 1px solid rgba(51, 33, 29, .34); outline-offset: 2px;
+    font: italic 700 12px/1 Georgia, 'Times New Roman', serif; letter-spacing: .17em; text-transform: uppercase;
+    transform: rotate(-8deg);
+    clip-path: polygon(2% 4%, 18% 0, 42% 5%, 66% 0, 92% 4%, 100% 20%, 97% 48%, 100% 76%, 93% 98%, 66% 95%, 40% 100%, 14% 95%, 0 98%, 4% 70%, 0 44%, 4% 18%);
+  }
+  #newbest.show { opacity: .93; animation: pf-stamp .5s cubic-bezier(.2,.8,.3,1.15); }
+  @keyframes pf-stamp {
+    0% { opacity: 0; transform: rotate(-15deg) scale(1.4); }
+    62% { opacity: .95; transform: rotate(-6.4deg) scale(.95); }
+    100% { opacity: .93; transform: rotate(-8deg) scale(1); }
+  }
+  html.pf-mobile #newbest { top: 84px; right: 13px; font-size: 10.5px; padding: 5px 8px 4px; }
+  @media (prefers-reduced-motion: reduce) {
+    #score.bump, #newbest.show { animation: none; }
+    .pf-pop.live { animation: pf-pop-rise .8s cubic-bezier(.18,.72,.25,1) forwards; }
+  }
 </style>
 <!-- three r187 vendored into assets/vendor/ (needs its sibling three.core.js); "papercraft/" points at the assets root -->
 <script type="importmap">{ "imports": { "three": "../../vendor/three.module.js", "papercraft/": "../../" } }</script>
@@ -285,11 +339,12 @@
 </div>
 <div id="toast"></div>
 <div id="muzzle" aria-hidden="true"></div>
+<div id="popups" aria-hidden="true"></div>
 <div id="help" role="note" aria-label="how to play">
   <div class="sheet">
     <h2>how to play</h2>
     <ul>
-      <li>click to shoot the pop-gun</li>
+      <li id="help-shoot">click to shoot the pop-gun</li>
       <li>cans, bottles, tins &amp; stars fold when hit</li>
       <li>60 seconds — beat your best</li>
     </ul>
@@ -330,6 +385,7 @@
     <div class="kicker">sixty seconds at the paper fair</div>
     <div class="score" id="final-score">0</div>
     <div class="kicker">points</div>
+    <div id="newbest" aria-hidden="true">NEW BEST</div>
     <div class="rows"><div>best <b id="final-best">0</b></div><div>longest streak <b id="final-streak">0</b></div></div>
     <div class="prizes" id="final-prizes"></div>
     <button id="again">shoot again</button>

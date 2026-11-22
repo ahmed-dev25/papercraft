@@ -54,13 +54,20 @@ const PF_LIFE = [];   // [kind, Q key] pairs the live one-shot step-down can thi
 // mouse in a wide window keeps the authored camera, gun, target scales, HUD and click-to-shoot exactly.
 const MOBILE = matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, innerHeight) < 620;
 const PORTRAIT = innerHeight >= innerWidth;
-// 56 units: 15% under the authored 66, so the rail holds a comfortable tap size in a 390 px portrait frame
-const MOBILE_DIST = 56;
+// portrait-only cabinet: three depth rows on a tall booth, a sliding can, a faster wave clock and the golden flurry.
+// Landscape phones and every desktop keep the authored wide rail and kind-based scoring.
+const PGP = MOBILE && PORTRAIT;
+// 60 units: the harness's 9:16 lens sees the cabinet's two side posts at 390 px with a margin (at 56 the outer post
+// edge clips), while the near row still prints ~48-50 CSS px of tap circle. See GAME.mobile() for the live readout.
+const MOBILE_DIST = 60;
 if (MOBILE) {
   document.documentElement.classList.add('pf-mobile');
   // phones never zoom the page chrome under a double tap or a pinch; desktop zoom is untouched by this branch
   const vp = document.querySelector('meta[name="viewport"]');
   if (vp) vp.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');
+  // the how-to card speaks the phone's verb; the desktop keeps its authored "click to shoot" line
+  const helpShoot = document.getElementById('help-shoot');
+  if (helpShoot) helpShoot.textContent = 'tap to shoot the pop-gun';
 }
 
 // ---- 1. the world's only palette (see the spec above: do not start a similar prompt from these hexes) ------------
@@ -159,7 +166,7 @@ const DUSK = {
 };
 const H = createHarness({
   ground: C.ground, bounds: { x0: -70, x1: 70, z0: -60, z1: 30 },
-  view: { pitch: 47, dist: MOBILE && PORTRAIT ? MOBILE_DIST : 66, target: [2, 1.5, -6] }, focus: [2, 2.1, -10.4], subject: [2, -8],
+  view: { pitch: 47, dist: MOBILE && PORTRAIT ? MOBILE_DIST : 66, target: [2, 1.5, -6], ...(PGP ? { subjectY: -.05 } : {}) }, focus: [2, 2.1, -10.4], subject: [2, -8],
   play: false, mood: 'dusk', moods: { ...MOODS, dusk: DUSK },
   dpr: Q.dpr, shadowMap: Q.shadow, msaa: Q.msaa, lens: { taps: Q.taps, greenDesat: .12 },
   light: { distance: 120, shadowExtent: 54 },
@@ -657,10 +664,12 @@ function buildWorld() {
     popup(endPostPts, paintEndPost, { parent: rail.userData.deck, x: dx, z: -.55, yaw: 0, scale: 1, order: railH.order + .55 });
   }
 
-  // 6b. the prize backboard, its shelf and prizes, and the bunting strung across the booth
-  const board = popup(boardOutline(34, 6.1), paintBoard, { x: 2, z: BOARD_Z, yaw: 0, edge: .09, scale: 1 });
+  // 6b. the prize backboard, its shelf and prizes, and the bunting strung across the booth. On a phone the whole
+  // backboard is printed deeper (behind the tall cabinet's side posts) so the portrait rows have room to step back.
+  const BZ = PGP ? -18.6 : BOARD_Z;
+  const board = popup(boardOutline(34, 6.1), paintBoard, { x: 2, z: BZ, yaw: 0, edge: .09, scale: 1 });
   H.glowing(board.group);
-  const cardOpt = () => H.cardOpts(2, BOARD_Z, 1, null, 1);
+  const cardOpt = () => H.cardOpts(2, BZ, 1, null, 1);
   const shelfTop = makeCard([[-14.4, 0], [14.4, 0], [14.4, .86], [-14.4, .86]], {
     ...cardOpt(), paint: paintShelf, thickness: .07, edgeWidth: .07, back: 'kraft', folds: [],
   });
@@ -773,6 +782,33 @@ function buildWorld() {
   // 6g. far tents at the blurred edges: this dusk fair continues past the frame
   popup(...tentPiece(), { x: -33.5, z: -21.5, yaw: -.2, scale: 1.45, res: .6, sway: .18 });
   popup(...tentPiece(), { x: 37, z: -20.5, yaw: .25, scale: 1.35, res: .6, sway: .18 });
+
+  if (PGP) buildPortraitBooth();
+}
+
+// 6g-b. the portrait cabinet. In a 390 px vertical frame the wide rail is a thin strip, so the phone gets a tall booth:
+// two cream side posts and a striped top beam frame the view, and two shelves carry a middle and a far row of targets
+// over the near row on the deck. The targets themselves are placed by GAME (three rows, see its 8c); this is the paper
+// that makes the depth ladder read as one cabinet. Desktop and phone-landscape never build it.
+function buildPortraitBooth() {
+  const PX = 2, HW = 9.05, PZ = -17.2;
+  for (const side of [-1, 1]) {
+    popup(polePts, paintPole, { x: PX + side * 8.0, z: PZ, cross: true, scale: 1.45, edge: .1, effects: 1 });
+  }
+  const shelf = (y, z0, depth) => {
+    const card = makeCard([[-HW, 0], [HW, 0], [HW, depth], [-HW, depth]], {
+      ...H.cardOpts(PX, z0, 1, null, 1), paint: paintShelf, thickness: .08, edgeWidth: .08, back: 'kraft', folds: [],
+    });
+    card.rotation.x = -PI / 2; card.position.set(PX, y, z0); scene.add(card); return card;
+  };
+  shelf(3.92, -10.60, 2.15);   // the middle row's plank, its top at the row base (4.00)
+  shelf(6.32, -12.50, 1.95);   // the far row's plank, one step higher and deeper
+  const beamPts = [[-HW - .35, 0], [HW + .35, 0], [HW + .12, 1.12], [-HW - .12, 1.12]];
+  const beam = makeCard(beamPts, {
+    ...H.cardOpts(PX, PZ, 1, null, 1), thickness: .08, edgeWidth: .08, back: 'kraft', folds: [],
+    paint: (P) => paintStripes(P, C.cream, C.coral, C.gold, { n: 11, vertical: true, scallop: true, medal: false }),
+  });
+  beam.position.set(PX, 12.35, PZ); scene.add(beam);
 }
 
 buildWorld();
@@ -784,6 +820,7 @@ buildWorld();
 const GUN = (() => {
   const CARD = { paper: H.paper, thickness: .06, edgeWidth: .06, pxPerUnit: 34, effects: 1, back: 'kraft' };
   const rig = new T.Group();          // camera-space pose
+  rig.name = 'paperfair-pop-gun';
   const aim = new T.Group();          // yaw/pitch + recoil on top of it
   rig.add(aim); scene.add(rig);
   const add = (pts, paint, z, order = 0) => {
@@ -902,18 +939,19 @@ const GUN = (() => {
     const q = camera.quaternion;
     _r.set(1, 0, 0).applyQuaternion(q); _u.set(0, 1, 0).applyQuaternion(q); _f.set(0, 0, -1).applyQuaternion(q);
     const halfH = GRIP.depth * Math.tan(camera.fov * PI / 360), halfW = halfH * camera.aspect;
-    // paperfair portrait: the toy is held at .68 and tucked into the very bottom-right corner so the rail is never under
-    // it; landscape phone .9; desktop exactly the authored 1 and GRIP position. Under 400 CSS px of displayed width the
-    // whole rig is hidden and the DOM muzzle flash in the corner fires instead (the shot path is identical).
-    const portrait = camera.aspect < 1, phone = MOBILE;
-    shownScale = phone ? (portrait ? .68 : .9) : 1;
+    // paperfair: the toy is ALWAYS visible. On a phone it is held small and tucked into the very bottom-right corner
+    // (.6 at 400 CSS px of displayed width or less, .68 above it), clear of the rail and every standing target; a
+    // desktop keeps the authored scale 1 at the authored grip. The 3D paper puff and the touch reticle flash remain.
+    const phone = MOBILE;
+    const shownW = cvEl.getBoundingClientRect().width;
+    shownScale = phone ? (shownW <= 400 ? .6 : .68) : 1;
     rig.position.copy(camera.position)
-      .addScaledVector(_r, (phone && portrait ? .97 : GRIP.x) * halfW)
-      .addScaledVector(_u, (phone && portrait ? -.88 : GRIP.y) * halfH)
+      .addScaledVector(_r, (phone ? .95 : GRIP.x) * halfW)
+      .addScaledVector(_u, (phone ? -.80 : GRIP.y) * halfH)
       .addScaledVector(_f, GRIP.depth);
     rig.quaternion.copy(q);
     rig.scale.setScalar(halfH / GRIP.at * shownScale);   // same screen size in any lens, scaled for a thumb
-    rig.visible = !(phone && cvEl.getBoundingClientRect().width < 400);
+    rig.visible = true;
 
     // aim: the reticle's ground point, in the rig's own frame; small clamps keep it a held toy, never a windmill
     let wy = 0, wp = 0;
@@ -1090,26 +1128,30 @@ const GAME = (() => {
   let waveRnd = P2.rng(seed * 7919 + 17);
   let fxRnd = P2.rng(seed * 7919 + 31);
   let gameTime = 0, roundStart = 0, score = 0, streak = 0, maxStreak = 0, lastShot = -1;
-  let started = false, done = false, waveTimer = 1.5, starterDone = false;
+  let started = false, done = false, waveTimer = PGP ? .9 : 1.5, starterDone = false;
+  let sliderAt = -1, flurryAt = -1, flurryStars = 0;
   let best = 0; try { best = +(localStorage.getItem('pf-best') || 0) || 0; } catch (e) { best = 0; }
 
-  // 8c. the spots: eleven free places along the rail; never closer than 1.6 units. A portrait frame sees only a narrow
-  // band of that rail, so on a phone the pool is screen-checked in NDC against the harness's own frame (10% margin for
-  // the spot, 2% for the card's top and sides) and the spacing tightens until 6-8 spots stand comfortably clear of the
-  // edges. The centre spot is always kept: the starter can rises there. Desktop skips every check and keeps its
-  // authored 3.0-unit rail and scale 1.
+  // 8c. the spots.
+  // Desktop and phone-landscape: eleven free places along the one wide rail, never closer than 1.6 units. On a phone
+  // landscape frame the pool is screen-checked in NDC against the harness's own frame (10% margin for the spot, 2% for
+  // the card's top and sides) and the spacing tightens until 6-8 spots stand clear of the edges.
+  // Portrait: twelve spots in THREE depth rows on the tall cabinet (four each). The near row is big and low, the middle
+  // row a step up and back, the far row high and small; the award follows the row (10 / 15 / 25), so the screen reads
+  // as a difficulty ladder. Each row's x offsets are authored against the 60-unit portrait lens; the far row can sit
+  // wider in world because its cards print smaller. Desktop skips every check and keeps its authored 3.0-unit rail.
   const railBase = RAIL_TOP + .04, _rp = new T.Vector3();
   camera.updateMatrixWorld();
-  const ndcAtRail = (x, y) => _rp.set(x, y, RAIL_Z).project(camera);
+  const ndcAt = (x, y, z) => _rp.set(x, y, z).project(camera);
+  const ndcAtRail = (x, y) => ndcAt(x, y, RAIL_Z);
   const tallestTop = Math.max(...Object.values(KINDS).map((k) => k.h)) * 1.08;
-  // Portrait: the harness's 1.33 lens and the 56-unit camera already read the rail; a 1.2 bump makes the ordinary
-  // targets 40-50 CSS px tall on a 390 px frame (the wide pie tin reads 55 px across at 30 high) with a tap circle of
-  // ~57 px or more (targetScreen.radius), while the widest card stays ~2.5 units on the 2.2-unit portrait rail so
-  // neighbouring cards do not cover each other. A landscape phone keeps the authored 1.15 bump; desktop exactly 1.
+  // Portrait: the harness's 1.33 lens and the 60-unit camera; a 1.2 base bump times the row multiplier makes the near
+  // row ~1.44x (can tap circle ~52 CSS px), the middle 1.2x and the far .875x (still >= 48 px because the far kinds,
+  // balloons and stars, are the tall ones). A landscape phone keeps the authored 1.15 bump; desktop exactly 1.
   const TSCALE = MOBILE ? (PORTRAIT ? 1.2 : 1.15) : 1;
-  const inBand = (x, y, m) => {   // NDC: x -1..1 across, y -1 bottom .. 1 top; a margin m of the frame's own size
+  const inBand = (x, y, m, z = RAIL_Z) => {   // NDC: x -1..1 across, y -1 bottom .. 1 top; a margin m of the frame
     if (!MOBILE) return true;
-    const p = ndcAtRail(x, y);
+    const p = ndcAt(x, y, z);
     return p.x > -1 + 2 * m && p.x < 1 - 2 * m && p.y > -1 + 2 * m && p.y < 1 - 2 * m;
   };
   const makeSpots = (gap) => Array.from({ length: 11 }, (_, i) => ({ x: 2 + (i - 5) * gap, z: RAIL_Z, t: null }));
@@ -1129,25 +1171,54 @@ const GAME = (() => {
     }
     return fallback || { list: makeSpots(1.7).filter(spotFits), gap: 1.7 };
   };
-  const fitted = fitSpots();
-  const spots = fitted.list.length ? fitted.list : makeSpots(1.7);
-  const railGap = fitted.gap;
-  const centerSpot = spots.reduce((a, s) => (Math.abs(s.x - 2) < Math.abs(a.x - 2) ? s : a), spots[0]);
+  // rows: z (depth), y (the shelf top the cards hinge from), mult (on TSCALE), value (the row's award), offs (x from
+  // the booth's centre at x=2), kinds (the visual mix that reads at that row's size).
+  const portraitRows = PGP ? [
+    { z: -9.70, y: railBase, mult: 1.20, value: 10, offs: [-5.5, -1.85, 1.85, 5.5], kinds: ['can', 'plate'] },
+    { z: -11.70, y: railBase + 2.39, mult: 1.00, value: 15, offs: [-5.8, -2.1, 2.1, 5.8], kinds: ['bottle', 'plate'] },
+    { z: -13.50, y: railBase + 4.79, mult: .875, value: 25, offs: [-5.9, -2.0, 2.0, 5.9], kinds: ['balloon', 'star'] },
+  ] : null;
+  const portraitSpots = () => {
+    const out = [];
+    portraitRows.forEach((r, ri) => r.offs.forEach((o, ci) => out.push({
+      x: 2 + o, z: r.z, y: r.y, t: null, row: ri, col: ci, value: r.value, mult: r.mult, kinds: r.kinds,
+      keep: ri === 1 && ci === 2,
+      // one sliding can on the middle row's inner-right spot: a slow patrol along a short stretch of its own row, so
+      // it never crosses a neighbouring card. It wraps at the lane ends (a paper cut-out on a hidden track).
+      slide: ri === 1 && ci === 2 ? { a: 2 + o - 1.15, b: 2 + o + 1.15 } : null,
+    })));
+    return out;
+  };
+  const fitted = PGP ? { list: [], gap: 3.8 } : fitSpots();
+  const spots = PGP ? portraitSpots() : (fitted.list.length ? fitted.list : makeSpots(1.7));
+  const railGap = PGP ? 3.8 : fitted.gap;
+  const centerSpot = PGP
+    ? (spots.find((s) => s.row === 1 && s.col === 1) || spots[0])
+    : spots.reduce((a, s) => (Math.abs(s.x - 2) < Math.abs(a.x - 2) ? s : a), spots[0]);
+  const sliderSpot = PGP ? spots.find((s) => s.slide) || null : null;
   const pool = [];
-  let nextId = 0;
-  for (const kind of ['can', 'can', 'can', 'can', 'bottle', 'bottle', 'bottle', 'bottle', 'plate', 'plate', 'plate', 'balloon', 'balloon', 'star', 'star']) {
+  const flurryPool = [];
+  let nextId = 0, slider = null;
+  const addTarget = (kind) => {
     const k = KINDS[kind];
     const mesh = makeCard(k.pts, { materials: k.mats, paper: H.paper, thickness: .08, edgeWidth: .08, pxPerUnit: 44 });
     // the card's own hinge line is its base. `at` stays at the origin: spawn() places the whole group on the rail,
     // so a world offset here would move every target twice (the old 2x RAIL_TOP/RAIL_Z bug put them behind the board).
     const h = hinge(mesh, { at: new T.Vector3(0, 0, 0), yaw: 0, open: 0, size: .32, rest: (nextId % 3 - 1) * .018 });
-    const t = { id: nextId++, kind, k, mesh, h, group: h.group, x: 0, z: RAIL_Z, scale: 1, standing: false, starter: false, hit: false,
-      roseAt: 0, foldAt: 0, freeAt: -1, spot: null };
+    const t = { id: nextId++, kind, k, mesh, h, group: h.group, x: 0, z: RAIL_Z, baseY: railBase, scale: 1, standing: false,
+      starter: false, hit: false, roseAt: 0, foldAt: 0, freeAt: -1, spot: null, row: 0, award: k.points, bonus: false,
+      persistent: false, reserved: false, slide: null, slidePhase: 0 };
     h.group.visible = false;
     h.onStart = () => H.sound?.flap({ size: .22, up: h.open > .5, key: 'target' + t.id, seed: 1200 + t.id });
     scene.add(h.group);
     pool.push(t);
+    return t;
+  };
+  for (const kind of ['can', 'can', 'can', 'can', 'bottle', 'bottle', 'bottle', 'bottle', 'plate', 'plate', 'plate', 'balloon', 'balloon', 'star', 'star']) addTarget(kind);
+  if (PGP) {   // three dedicated gold stars for the final flurry: never spent by ordinary waves
+    for (let i = 0; i < 3; i++) { const t = addTarget('star'); t.reserved = true; flurryPool.push(t); }
   }
+  if (PGP) { slider = addTarget('can'); slider.reserved = true; }
 
   // 8d. the reticle: a two-layer print, unmistakable over busy ground. A cream dashed ring (3.0 world units
   // across) with an ink under-stroke, a thin ink ring and a small ink cross. It lies flat on the page print and is
@@ -1216,12 +1287,13 @@ const GAME = (() => {
   const rectOf = () => cv().getBoundingClientRect();
   const cssToNdc = (x, y) => { const r = rectOf(); return { x: (x - r.left) / r.width * 2 - 1, y: -(y - r.top) / r.height * 2 + 1 }; };
   const project = (x, y, z) => { const r = rectOf(); _v.set(x, y, z).project(camera); return [r.left + (_v.x + 1) / 2 * r.width, r.top + (1 - _v.y) / 2 * r.height]; };
-  const targetCenter = (t) => [t.x, RAIL_TOP + .04 + t.k.h * t.scale * .5, t.z];
+  const targetCenter = (t) => [t.x, (t.baseY ?? railBase) + t.k.h * t.scale * .5, t.z];
   const targetScreen = (t) => {
     camera.updateMatrixWorld();
     const [cx, cy, cz] = targetCenter(t);
+    const base = t.baseY ?? railBase;
     const hw = t.k.w * t.scale * .5;
-    const p = project(cx, cy, cz), b = project(cx, RAIL_TOP + .04, cz), u = project(cx, RAIL_TOP + .04 + t.k.h * t.scale, cz);
+    const p = project(cx, cy, cz), b = project(cx, base, cz), u = project(cx, base + t.k.h * t.scale, cz);
     const l = project(cx - hw, cy, cz), r = project(cx + hw, cy, cz);
     return { screen: p, radius: Math.max(18, Math.max(Math.abs(u[1] - b[1]), Math.abs(r[0] - l[0])) * .62) };
   };
@@ -1240,6 +1312,39 @@ const GAME = (() => {
   // 8f. the HUD: a fairground scorecard and a ticket that shortens; ink tallies for the streak
   const $ = (id) => document.getElementById(id);
   const scoreEl = $('score'), bestEl = $('best'), streakEl = $('streak'), tearsEl = $('tears'), ticketEl = $('ticket');
+  // 8f-b. hit juice: a floating ink chip on a cream torn card, a quick scorecard bump and the NEW BEST stamp. The chips
+  // live in a DOM layer above the canvas and below the end card; eight nodes are reused so a busy wave allocates nothing.
+  const popLayer = $('popups'), newBestEl = $('newbest');
+  const popNodes = [];
+  let livePops = 0;
+  function endPop(node) {
+    if (node.classList.contains('live')) { node.classList.remove('live'); livePops = Math.max(0, livePops - 1); }
+  }
+  function popupAt(points, mult, x, y) {
+    if (!popLayer) return;
+    let node;
+    if (popNodes.length < 8) {
+      node = document.createElement('div'); node.className = 'pf-pop';
+      node.addEventListener('animationend', () => endPop(node));
+      popLayer.appendChild(node); popNodes.push(node);
+    } else {
+      node = popNodes.find((n) => !n.classList.contains('live')) || popNodes[0];
+      endPop(node);
+    }
+    node.textContent = '+' + points;
+    if (mult >= 2) {
+      node.appendChild(document.createTextNode(' '));
+      const m = document.createElement('span'); m.className = 'mult'; m.textContent = '\u00d7' + mult; node.appendChild(m);
+    }
+    node.style.left = Math.round(x) + 'px'; node.style.top = Math.round(y) + 'px';
+    void node.offsetWidth;   // restart the CSS animation on a reused node
+    node.classList.add('live'); livePops++;
+  }
+  function bumpScore() {
+    if (!scoreEl) return;
+    scoreEl.classList.remove('bump'); void scoreEl.offsetWidth; scoreEl.classList.add('bump');
+  }
+  if (scoreEl) scoreEl.addEventListener('animationend', () => scoreEl.classList.remove('bump'));
   const segs = [];
   if (tearsEl) for (let i = 0; i < 12; i++) {
     const s = document.createElement('div'); s.className = 'seg'; s.dataset.n = String(12 - i); tearsEl.appendChild(s); segs.push(s);
@@ -1289,12 +1394,18 @@ const GAME = (() => {
 
   function timeLeft() { return done ? 0 : started ? Math.max(0, 60 - (gameTime - roundStart)) : 60; }
 
-  // 8g. targets: rise, fold by themselves after 3.5 s, fold at once when hit
+  // 8g. targets: rise, fold by themselves after 5.5 s on the portrait cabinet (3.5 s on the wide rail), fold at once
+  // when hit. Portrait keeps a busier screen: one persistent sliding can, rows that spawn as a row / a diagonal / a
+  // zigzag, and a cap of eight standing at once (waves never exceed it).
   function spawn(t, spot, scale, starter = false) {
     if (!spot || spot.t) return false;
-    spot.t = t; t.spot = spot; t.x = spot.x; t.z = spot.z; t.scale = scale * TSCALE; t.standing = true;
-    t.starter = !!starter; t.hit = false; t.roseAt = gameTime; t.foldAt = 0; t.freeAt = Infinity;
-    t.group.position.set(t.x, railBase, t.z);
+    spot.t = t; t.spot = spot; t.x = spot.x; t.z = spot.z; t.baseY = spot.y ?? railBase;
+    t.row = spot.row ?? 0; t.award = spot.value ?? t.k.points;
+    t.scale = scale * TSCALE * (spot.mult ?? 1);
+    t.standing = true; t.starter = !!starter; t.hit = false; t.bonus = false;
+    t.persistent = !!t.reserved; t.slide = spot.slide || null; t.slidePhase = 0;
+    t.roseAt = gameTime; t.foldAt = 0; t.freeAt = Infinity;
+    t.group.position.set(t.x, t.baseY, t.z);
     t.group.rotation.y = ((t.id * .73) % 1 - .5) * .14;
     t.mesh.scale.setScalar(t.scale);
     t.group.visible = true;
@@ -1302,13 +1413,27 @@ const GAME = (() => {
     return true;
   }
   function freeTarget(kind) {
-    const free = pool.filter((t) => !t.standing && t.freeAt <= gameTime && (kind ? t.kind === kind : true));
+    const free = pool.filter((t) => !t.standing && !t.reserved && t.freeAt <= gameTime && (kind ? t.kind === kind : true));
     return free.length ? free[Math.floor(waveRnd() * free.length)] : null;
   }
+  function standingCount() { let n = 0; for (const t of pool) if (t.standing) n++; return n; }
   function spawnStarter() {
     const t = freeTarget('can'); if (!t) return false;
     return spawn(t, centerSpot, 1.2, true);
   }
+  const shuffled = (list) => {
+    const a = list.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(waveRnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  };
+  function spawnAtSpot(s, kinds) {
+    if (!s || s.t) return false;
+    const mix = kinds || s.kinds;
+    const kind = mix[Math.floor(waveRnd() * mix.length)];
+    const t = freeTarget(kind) || freeTarget(null);
+    return t ? (spawn(t, s, .96 + waveRnd() * .08) ? t : false) : false;
+  }
+  // the wide rail (desktop + phone landscape): unchanged kind-based waves
   function spawnWave(n) {
     const freeSpots = spots.filter((s) => !s.t);
     for (let i = freeSpots.length - 1; i > 0; i--) { const j = Math.floor(waveRnd() * (i + 1)); [freeSpots[i], freeSpots[j]] = [freeSpots[j], freeSpots[i]]; }
@@ -1321,11 +1446,79 @@ const GAME = (() => {
     }
     return made;
   }
+  // portrait waves: the award is the row's, the kind is only the visual. 1-3 per wave, never past the cap.
+  function spawnWavePortrait() {
+    const cap = 8, room = cap - standingCount();
+    if (room <= 0) return 0;
+    const free = spots.filter((s) => !s.t && !s.keep);
+    if (!free.length) return 0;
+    const want = Math.min(room, 2 + Math.floor(waveRnd() * 2)), chosen = [];
+    const p = waveRnd();
+    if (p < .34) {              // a whole row (as many as will fit), so one shelf reads at once
+      const rows = [0, 1, 2].filter((r) => free.some((s) => s.row === r));
+      const r = rows[Math.floor(waveRnd() * rows.length)];
+      chosen.push(...shuffled(free.filter((s) => s.row === r)).slice(0, want));
+    } else if (p < .67) {       // a diagonal: one free spot per row, marching across
+      const start = Math.floor(waveRnd() * 4), dir = waveRnd() < .5 ? 1 : -1;
+      for (let k = 0; k < 4 && chosen.length < want; k++) {
+        const col = (start + k * dir + 8) % 4;
+        for (let r = 0; r < 3; r++) {
+          const s = free.find((q) => q.row === r && q.col === col && !chosen.includes(q));
+          if (s) { chosen.push(s); break; }
+        }
+      }
+    } else {                    // alternating / zigzag: neighbouring rows take turns
+      let r = Math.floor(waveRnd() * 3);
+      for (let k = 0; k < 8 && chosen.length < want; k++) {
+        const rowFree = free.filter((s) => s.row === r && !chosen.includes(s));
+        if (rowFree.length) chosen.push(rowFree[Math.floor(waveRnd() * rowFree.length)]);
+        r = (r + 1 + Math.floor(waveRnd() * 2)) % 3;
+      }
+    }
+    let made = 0;
+    for (const s of chosen.slice(0, want)) if (spawnAtSpot(s)) made++;
+    return made;
+  }
+  // the golden flurry: a few bonus stars worth 25 in the last ~8 s of a portrait round, calm paper, no flashing
+  function spawnFlurry(n) {
+    let room = 8 - standingCount();
+    if (flurryStars === 0 && room < n) {
+      // open the cabinet: ordinary cards fold away so the golden stars have shelf space (calm, one last wave)
+      const need = n - Math.max(0, room);
+      for (const t of pool.filter((q) => q.standing && !q.bonus && !q.persistent).slice(0, need)) fold(t, false);
+      room = 8 - standingCount();
+    }
+    if (room <= 0) return 0;
+    const free = shuffled(spots.filter((s) => !s.t && !s.keep));
+    let made = 0;
+    for (const s of free) {
+      if (made >= n || made >= room) break;
+      const t = flurryPool.find((q) => !q.standing && q.freeAt <= gameTime); if (!t) continue;
+      if (spawn(t, s, 1.0)) { t.award = 25; t.bonus = true; t.persistent = true; made++; }
+    }
+    flurryStars += made;
+    return made;
+  }
+  function spawnSlider() {
+    if (!sliderSpot || slider.standing) return false;
+    slider.freeAt = -1;
+    const ok = spawn(slider, sliderSpot, 1.4);   // a slightly larger can so its tap circle stays >= 48 px
+    if (ok) { slider.award = sliderSpot.value; slider.persistent = true; slider.slidePhase = 0; }
+    return ok;
+  }
+  // a card on every shelf at the bell: the three-row cabinet reads at once and a far-row target is always available
+  function prefillPortrait() {
+    if (!PGP) return;
+    spawnAtSpot(spots.find((s) => s.row === 0 && s.col === 1));
+    const far = spawnAtSpot(spots.find((s) => s.row === 2 && s.col === 1));
+    if (far) far.persistent = true;   // the far prize star stays until it is hit: the top shelf always reads
+  }
   function fold(t, hit) {
     if (!t.standing) return;
     t.standing = false; t.hit = !!hit; t.freeAt = gameTime + .68; t.foldAt = gameTime;
     if (t.spot) { t.spot.t = null; t.spot = null; }
     t.h.set(0);
+    if (t === slider) sliderAt = gameTime + 1.5;
   }
   function spawnConfetti(x, y, z) {
     const colors = [C.coral, C.gold, C.cream, C.tealLight, C.coralSoft];
@@ -1350,7 +1543,11 @@ const GAME = (() => {
     const [x, y, z] = targetCenter(t);
     streak++; maxStreak = Math.max(maxStreak, streak);
     const mult = 1 + Math.min(streak - 1, 6) * .25;
-    score += Math.round(t.k.points * mult);
+    const award = t.award ?? t.k.points;
+    score += Math.round(award * mult);
+    const sp = project(x, y, z);
+    popupAt(award, streak, sp[0], sp[1] - 6);
+    bumpScore();
     fold(t, true);
     spawnConfetti(x, y, z);
     chime(t.kind);
@@ -1365,8 +1562,8 @@ const GAME = (() => {
 
   // 8h. firing: one path for a real pointerdown and for the test hook. The pellet leaves the POP-GUN MUZZLE (not the
   // bottom-centre of the frame); the reticle lands on the shot's ground point; the gun kicks and puffs paper. On a
-  // touch the ring is held bright for .3 s (there is no hover to leave it under the finger); when the toy is hidden on
-  // a narrow phone, a small paper flash in the corner stands in for its puff.
+  // touch the ring is held bright for .3 s (there is no hover to leave it under the finger). The toy is always visible
+  // now, on every phone; the corner #muzzle paper flash stays only as the harness-hidden fallback.
   function muzzleFlash() {
     const mz = $('muzzle'); if (!mz) return;
     mz.classList.remove('flash'); void mz.offsetWidth; mz.classList.add('flash');
@@ -1421,6 +1618,7 @@ const GAME = (() => {
     for (const p of pellets) scene.remove(p.m);
     pellets.length = 0;
     retTarget = 0;
+    const previousBest = best, isBest = score > previousBest && score > 0;
     best = Math.max(best, score);
     try { localStorage.setItem('pf-best', String(best)); } catch (e) { /* a private page may refuse */ }
     updateHud();
@@ -1430,6 +1628,11 @@ const GAME = (() => {
       $('final-best').textContent = String(best);
       $('final-streak').textContent = String(maxStreak);
       $('final-prizes').textContent = prizeLine();
+      if (newBestEl) {
+        newBestEl.classList.toggle('show', isBest);
+        newBestEl.setAttribute('aria-hidden', String(!isBest));
+        void newBestEl.offsetWidth;
+      }
       card.classList.remove('hidden');
       refreshShare();
     }
@@ -1437,16 +1640,23 @@ const GAME = (() => {
   }
   function resetRound() {
     score = 0; streak = 0; maxStreak = 0; started = false; done = false;
-    gameTime = 0; roundStart = 0; lastShot = -1; waveTimer = 1.5; starterDone = false;
+    gameTime = 0; roundStart = 0; lastShot = -1; waveTimer = PGP ? .9 : 1.5; starterDone = false;
+    sliderAt = -1; flurryAt = -1; flurryStars = 0;
     waveRnd = P2.rng(seed * 7919 + 17);
     fxRnd = P2.rng(seed * 7919 + 31);
     for (const s of spots) s.t = null;
-    for (const t of pool) { t.standing = false; t.starter = false; t.hit = false; t.spot = null; t.freeAt = -1; t.group.visible = false; t.h.reset(0); }
+    for (const t of pool) {
+      t.standing = false; t.starter = false; t.hit = false; t.spot = null; t.freeAt = -1; t.group.visible = false; t.h.reset(0);
+      t.persistent = false; t.bonus = false; t.award = t.k.points; t.slide = null; t.baseY = railBase; t.row = 0;
+    }
     for (const p of pellets) scene.remove(p.m); pellets.length = 0;
     for (const c of confetti) { scene.remove(c.m); c.mat.dispose(); } confetti.length = 0;
     for (const m of marks) { scene.remove(m.m); m.mat.dispose(); } marks.length = 0;
+    for (const n of popNodes) endPop(n);
     retTarget = 0; retFlash = -1; ring.visible = false;
     const card = $('endcard'); if (card) card.classList.add('hidden');
+    if (newBestEl) { newBestEl.classList.remove('show'); newBestEl.setAttribute('aria-hidden', 'true'); }
+    if (PGP) { spawnSlider(); prefillPortrait(); }
     updateHud();
   }
   function newRound() {
@@ -1670,18 +1880,47 @@ const GAME = (() => {
     for (const t of pool) t.h.update(dt);   // targets are not in H.hinges: their springs run here, on the same clock
     if (started && !done && gameTime - roundStart >= 60) endRound();
     if (!done) {
+      const tl = timeLeft();
       waveTimer -= dt;
       if (waveTimer <= 0) {
-        if (!starterDone) { starterDone = true; spawnStarter(); waveTimer = 1.9; }
-        else { const n = 1 + (waveRnd() < .55 ? 1 : 0) + (waveRnd() < .2 ? 1 : 0); spawnWave(n); waveTimer = 1.6 + waveRnd() * .8; }
+        if (PGP) {
+          if (!starterDone) {
+            starterDone = true; spawnStarter();
+            const extra = Math.min(2, 8 - standingCount());
+            for (let i = 0; i < extra; i++) spawnAtSpot(shuffled(spots.filter((s) => !s.t && !s.keep))[0]);
+            waveTimer = 1.0;
+          } else {
+            spawnWavePortrait();
+            waveTimer = (tl <= 15 ? 1.05 : 1.6) + waveRnd() * (tl <= 15 ? .55 : .8);
+            if (tl <= 8.05 && flurryStars < 6) { if (flurryAt < 0) flurryAt = gameTime; spawnFlurry(flurryAt === gameTime ? 3 : 1); }
+          }
+        } else {
+          if (!starterDone) { starterDone = true; spawnStarter(); waveTimer = 1.9; }
+          else { const n = 1 + (waveRnd() < .55 ? 1 : 0) + (waveRnd() < .2 ? 1 : 0); spawnWave(n); waveTimer = 1.6 + waveRnd() * .8; }
+        }
+      }
+      // the flurry opens on the clock, not only on a wave boundary: stepping to 52 s leaves the stars standing
+      if (PGP && starterDone && tl <= 8.05 && flurryAt < 0) { flurryAt = gameTime; spawnFlurry(3); }
+      // never let the cabinet read half-empty: when a batch folds at once, the next wave tops the screen back to six
+      if (PGP && starterDone && standingCount() < 6 && waveTimer > .55) { spawnWavePortrait(); waveTimer = .55; }
+      // the sliding can patrols its short middle-row lane and wraps; it folds and returns on the normal hit path
+      if (PGP && slider) {
+        if (!slider.standing && sliderAt >= 0 && gameTime >= sliderAt) { sliderAt = -1; spawnSlider(); }
+        if (slider.standing && slider.slide) {
+          slider.slidePhase += dt;
+          const { a, b } = slider.slide, span = b - a;
+          slider.x = a + (((slider.slidePhase * .42) % span) + span) % span;
+          slider.group.position.x = slider.x;
+        }
       }
     }
+    const life = PGP ? 5.5 : 3.5;
     for (const t of pool) {
       if (!t.standing) {
         if (t.group.visible && gameTime - t.foldAt > .72) t.group.visible = false;
         continue;
       }
-      if (gameTime - t.roseAt > 3.5) fold(t, false);
+      if (!t.persistent && gameTime - t.roseAt > life) fold(t, false);
     }
     for (let i = pellets.length - 1; i >= 0; i--) {
       const p = pellets[i]; p.t += dt;
@@ -1781,18 +2020,19 @@ const GAME = (() => {
       camera.updateMatrixWorld();
       return pool.map((t) => {
         const s = targetScreen(t);
-        return { id: t.id, kind: t.kind, points: t.k.points, x: +t.x.toFixed(2), z: +t.z.toFixed(2), standing: t.standing,
-          starter: t.starter, scale: +t.scale.toFixed(2), screen: [Math.round(s.screen[0]), Math.round(s.screen[1])], hit: t.hit };
+        return { id: t.id, kind: t.kind, points: t.award ?? t.k.points, x: +t.x.toFixed(2), z: +t.z.toFixed(2), standing: t.standing,
+          starter: t.starter, scale: +t.scale.toFixed(2), screen: [Math.round(s.screen[0]), Math.round(s.screen[1])], hit: t.hit,
+          row: t.row ?? 0, bonus: !!t.bonus };
       });
     },
     probe: () => {
       const r = rectOf();
       const ret = pointer.inside && aim.shown && !done
         ? { x: +aim.point.x.toFixed(3), y: +aim.point.y.toFixed(3), z: +aim.point.z.toFixed(3) } : null;
-      return { canvas: [r.left, r.top, r.width, r.height], standing: pool.filter((t) => t.standing).length,
+      return { canvas: [r.left, r.top, r.width, r.height], standing: pool.filter((t) => t.standing).length, popups: livePops,
         reticle: ret, gun: { ...GUN.state(), muzzleScreen: GUN.muzzleScreen() },
         pointer: { x: Math.round(pointer.x), y: Math.round(pointer.y), inside: pointer.inside, ndc: { x: +aim.ndc.x.toFixed(3), y: +aim.ndc.y.toFixed(3) } },
-        targets: pool.filter((t) => t.standing).map((t) => { const s = targetScreen(t); return { id: t.id, kind: t.kind, screen: s.screen.map(Math.round), radius: +s.radius.toFixed(1) }; }) };
+        targets: pool.filter((t) => t.standing).map((t) => { const s = targetScreen(t); return { id: t.id, kind: t.kind, points: t.award, row: t.row, bonus: t.bonus, screen: s.screen.map(Math.round), radius: +s.radius.toFixed(1) }; }) };
     },
     shootAt: (cssX, cssY) => {
       pointer.x = cssX; pointer.y = cssY; pointer.inside = true;
@@ -1805,16 +2045,25 @@ const GAME = (() => {
     mobile: () => {
       camera.updateMatrixWorld();
       const up = pool.filter((t) => t.standing);
-      const px = (t) => Math.round(Math.abs(project(t.x, railBase + t.k.h * t.scale, t.z)[1] - project(t.x, railBase, t.z)[1]));
+      const px = (t) => Math.round(Math.abs(project(t.x, (t.baseY ?? railBase) + t.k.h * t.scale, t.z)[1] - project(t.x, t.baseY ?? railBase, t.z)[1]));
       const tap = (t) => Math.round(targetScreen(t).radius * 2);
       return { mobile: MOBILE, portrait: PORTRAIT, dist: +H.view.dist.toFixed(2), railGap, spots: spots.map((s) => +s.x.toFixed(2)),
+        // portrait cabinet readout: three rows, the award ladder, the standing cap, the sliding can and the flurry.
+        // Desktop reports rows 1, no row values and a null slider, so a wide page keeps its authored shape.
+        rows: PGP ? 3 : 1,
+        rowValues: PGP ? [10, 15, 25] : null,
+        standingCap: PGP ? 8 : spots.length,
+        rowSpots: PGP ? spots.map((s) => ({ x: +s.x.toFixed(2), z: +s.z.toFixed(2), y: +(s.y ?? railBase).toFixed(2), row: s.row, value: s.value, slide: !!s.slide })) : null,
+        sliding: PGP ? { active: !!(slider && slider.standing), id: slider ? slider.id : null, x: slider ? +slider.x.toFixed(2) : null, row: 1, value: 15,
+          lane: sliderSpot && sliderSpot.slide ? [+sliderSpot.slide.a.toFixed(2), +sliderSpot.slide.b.toFixed(2)] : null } : null,
+        flurry: { active: flurryAt >= 0, stars: flurryStars },
         targetScale: +TSCALE.toFixed(2),
         // minCardPx: the shortest standing card's printed height; minTapPx: the smallest tap circle (the hit test is
         // targetScreen.radius, so a card reads as a comfortable thumb target even when it is a wide, short pie tin).
         minCardPx: up.length ? Math.min(...up.map(px)) : null,
         minTapPx: up.length ? Math.min(...up.map(tap)) : null,
         minTargetPx: up.length ? Math.min(...up.map(tap)) : null, standing: up.length,
-        targets: up.map((t) => ({ kind: t.kind, px: px(t), tap: tap(t), screen: targetScreen(t).screen.map(Math.round) })),
+        targets: up.map((t) => ({ kind: t.kind, row: t.row, points: t.award, bonus: t.bonus, px: px(t), tap: tap(t), screen: targetScreen(t).screen.map(Math.round) })),
         gun: GUN.state(), gunHidden: GUN.hidden(), flash: retFlash > 0, reticleOpacity: +ring.material.opacity.toFixed(2),
         muzzle: !!document.getElementById('muzzle') };
     },
