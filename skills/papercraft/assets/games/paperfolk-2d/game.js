@@ -379,27 +379,64 @@ const PFG = (() => {
   // If nothing is found 30 s after the first interaction (the end-card clock starts on the same pointerdown), then
   // every ~35 s after, a tiny paper butterfly enters from a frame edge, flutters to a point beside the nearest visible
   // unfound folk, hovers, and leaves. It is an overlay only (H.overlay), never a sprite: nothing can pick it.
-  const bf = { active: false, phase: 'idle', t: 0, age: 0, op: 0, target: null, x: 0, y: 0, from: null, to: null, away: null };
+  const bf = { active: false, phase: 'idle', t: 0, age: 0, op: 0, target: null, tight: false, manual: false, lastTarget: null, leftAt: -1e9, x: 0, y: 0, from: null, to: null, away: null };
+  const stamps = [], scraps = [];   // the found flourish: an ink print per collect, and a few flying card scraps
   let hintStuck = 0, hintNext = 30;
-  function hideButterfly() { bf.active = false; bf.phase = 'idle'; bf.target = null; bf.op = 0; }
-  function startHint() {
-    if (done) return false;
-    const unfound = FOLK.filter((f) => !f.found);
-    if (!unfound.length) return false;
+  let hintClock = 0, hintLastTap = -1e9;
+  const shyWords = 'a shy one — fold the page flat to see its face';
+  function hideButterfly() {
+    if (bf.target) { bf.lastTarget = bf.target; bf.leftAt = hintClock; }   // remember the clue for a repeat tap
+    bf.active = false; bf.phase = 'idle'; bf.target = null; bf.op = 0;
+  }
+  function hintTarget() {   // the same target choice the stuck hint makes (and the manual hint reuses): nearest unfound
+    const unfound = FOLK.filter((f) => !f.found);                          // folk the page shows; when the page shows none,
+    if (!unfound.length) return null;                                      // the nearest unfound overall
     const seen = unfound.filter((f) => safeOnScreen(f) && visibility(f).clear);
     const pool = seen.length ? seen : unfound;
     let target = pool[0], best = Infinity;
     for (const f of pool) { const d = Math.hypot(f.x - HERO_AT[0], f.z - HERO_AT[1]); if (d < best) { best = d; target = f; } }
+    return target;
+  }
+  function startHint(tight = false, target = null, manual = false) {
+    if (done) return false;
+    target = target || hintTarget();
+    if (!target) return false;
+    const off = tight ? 1.2 : 2.5;   // 2.5 units beside it (never on it); a repeat tap comes in to 1.2
     const c = cvEl();
     const [sx0, sy0] = H.proj(target.x, 0.8, target.z);
     const uk = Math.abs(H.proj(target.x + 1, 0, target.z)[0] - H.proj(target.x, 0, target.z)[0]) || 8;
     const dir = sx0 < c.width / 2 ? 1 : -1;   // beside it, toward the frame's middle
-    const hx = sx0 + dir * Math.max(18, 2.5 * uk), hy = sy0 - Math.max(8, 0.6 * uk);
+    const hx = sx0 + dir * Math.max(18, off * uk), hy = sy0 - Math.max(8, 0.6 * uk);
     const enterLeft = hx < c.width / 2;
     bf.from = { x: enterLeft ? -26 : c.width + 26, y: Math.min(c.height * 0.86, hy + 60) };
     bf.to = { x: hx, y: hy };
     bf.away = { x: enterLeft ? c.width + 26 : -26, y: Math.max(c.height * 0.12, hy - 70) };
-    bf.target = target; bf.active = true; bf.phase = 'in'; bf.t = 0; bf.age = 0; bf.op = 1; bf.x = bf.from.x; bf.y = bf.from.y;
+    bf.target = target; bf.tight = tight; bf.manual = manual; bf.active = true; bf.phase = 'in'; bf.t = 0; bf.age = 0; bf.op = 1; bf.x = bf.from.x; bf.y = bf.from.y;
+    return true;
+  }
+  // a user-triggered hint: the tab (index.html's inline wiring calls this) or window.__paperfolk.hint(). One tap sends
+  // the butterfly to the nearest unfound folk; a second tap (while it shows, or within 6 s of it leaving) brings the
+  // same clue closer; at the tight step a third tap only repeats the shy one's words. 1.2 s between accepted taps.
+  function manualHint() {
+    if (done || !FOLK.some((f) => !f.found)) return false;
+    if (hintClock - hintLastTap < 1.2) return false;             // spam guard: a tap within 1.2 s is a slip
+    hintLastTap = hintClock;
+    if (!started) { started = true; t0 = performance.now(); }    // a hint tap is a first interaction too (the timer runs)
+    const prev = bf.active ? bf.target : bf.lastTarget;
+    const live = bf.active || (bf.lastTarget && hintClock - bf.leftAt <= 6);
+    if (live && prev && !prev.found) {
+      if (!bf.tight) {                                            // the same clue, one step closer
+        startHint(true, prev, true);
+        if (prev.shy) toast(shyWords);
+        return true;
+      }
+      if (prev.shy) toast(shyWords);                              // already tight: only the words repeat
+      return false;
+    }
+    const target = hintTarget();
+    if (!target) return false;
+    startHint(false, target, true);
+    if (target.shy) toast(shyWords);                              // only the shy one needs words; the butterfly is the hint
     return true;
   }
   function stepButterfly(dt) {
@@ -423,15 +460,41 @@ const PFG = (() => {
     }
   }
   H.onStep((time, dt) => {
+    hintClock += dt;
     stepButterfly(dt);
-    if (!started || done || FOLK.some((f) => f.found)) return;   // the getting-started hint only
+    if (!started || done || FOLK.some((f) => f.found)) return;   // the automatically triggered getting-started hint only
     hintStuck += dt;
     if (hintStuck >= hintNext) { startHint(); hintNext += 35; }
   });
-  // paperfolk: the butterfly draws above the finished world (the harness's overlay hook), never a picking sprite
+  // paperfolk: the flourish and the butterfly draw above the finished world (the harness's overlay hook), never a
+  // picking sprite. The found stamp is a flat ground print projected through H.proj (the cheap path: no extra card,
+  // no extra draw list), so it is visible standing and folded; the scraps are a few screen-space card chips.
   H.overlay((g) => {
+    const c = cvEl(), sinP = Math.sin(H.view.pitch * Math.PI / 180);
+    for (const s of stamps) {   // the ink "found" print: dashed ring + check, ~1.4 units across in its plane
+      const a = Math.min(1, s.t / 0.25) * 0.8;
+      if (a <= 0.01) continue;
+      const [sx, sy] = H.proj(s.x, 0.01, s.z);
+      const uk = Math.abs(H.proj(s.x + 1, 0, s.z)[0] - H.proj(s.x, 0, s.z)[0]) || 8;
+      g.save(); g.translate(sx, sy); g.scale(1, sinP); g.rotate(s.rot);
+      g.globalAlpha = a; g.strokeStyle = C.ink; g.lineCap = g.lineJoin = 'round';
+      g.lineWidth = Math.max(1, uk * 0.035); g.setLineDash([uk * 0.07, uk * 0.06]);
+      g.beginPath(); g.arc(0, 0, uk * 0.67, 0.4, Math.PI * 2 + 0.1); g.stroke();
+      g.setLineDash([]); g.lineWidth = Math.max(1, uk * 0.055);
+      g.beginPath(); g.moveTo(-uk * 0.29, uk * 0.03); g.lineTo(-uk * 0.07, uk * 0.26); g.lineTo(uk * 0.33, -uk * 0.25); g.stroke();
+      g.restore();
+    }
+    for (const s of scraps) {   // 5-7 tiny cream/ochre card chips: out, up, down, a slow turn, gone by ~0.9 s
+      const a = Math.min(1, Math.max(0, (s.life - s.t) / 0.3)) * 0.95;
+      if (a <= 0.01) continue;
+      g.save(); g.globalAlpha = a; g.translate(s.x, s.y); g.rotate(s.rot);
+      g.fillStyle = s.col; g.fillRect(-s.w / 2, -s.h / 2, s.w, s.h);
+      g.strokeStyle = 'rgba(90,58,40,.35)'; g.lineWidth = Math.max(1, s.w * 0.06); g.strokeRect(-s.w / 2, -s.h / 2, s.w, s.h);
+      g.restore();
+    }
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
     if (!bf.active || bf.op <= 0.01) return;
-    const s = Math.max(7, Math.min(16, cvEl().width / 100));
+    const s = Math.max(7, Math.min(16, c.width / 100));
     const flap = 0.25 + 0.6 * (0.5 + 0.5 * Math.sin(bf.age * 18));
     const bob = Math.sin(bf.age * 3.2) * s * 0.12;
     g.save();
@@ -453,8 +516,10 @@ const PFG = (() => {
     g.restore();
     g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
   });
-  // a tiny debug readout for the main session's stepped-time tests (the game's public hooks keep their shapes)
-  window.__paperfolkHint = () => ({ active: bf.active, phase: bf.phase, target: bf.target ? bf.target.id : null, stuck: +hintStuck.toFixed(2), next: hintNext });
+  // a tiny debug readout for the main session's stepped-time tests (the game's public hooks keep their shapes; tight and
+  // manual are additive: was this hint the closer second tap, and was it asked for rather than the 30 s stuck hint?)
+  window.__paperfolkHint = () => ({ active: bf.active, phase: bf.phase, target: bf.target ? bf.target.id : null, stuck: +hintStuck.toFixed(2), next: hintNext, tight: !!bf.tight, manual: !!bf.manual,
+    hover: bf.active && bf.to ? (() => { const [hx, hy] = toCss(bf.to.x, bf.to.y); return { x: hx, y: hy }; })() : null });
 
   // ---- picking: a short click greets a folk; an empty click falls through to the harness and folds the world --------
   const pickFolk = (cx, cy) => {
@@ -496,19 +561,50 @@ const PFG = (() => {
   // all also run deterministically under the capture hook's restart() / step()
   H.onStep((time, dt) => {
     for (let i = pending.length - 1; i >= 0; i--) { const p = pending[i]; p.t -= dt; if (p.t <= 0) { pending.splice(i, 1); p.fn(); } }
+    for (const s of stamps) if (s.t < 0.25) s.t += dt;   // the ink print drying in over ~0.25 s, then it stays
+    for (let i = scraps.length - 1; i >= 0; i--) {        // paper scraps: a short outward arc, gravity, a slow turn, then gone
+      const s = scraps[i], c = cvEl(); s.t += dt;
+      s.vy += c.height * 1.35 * dt; s.x += s.vx * dt; s.y += s.vy * dt; s.rot += s.vr * dt;
+      if (s.t >= s.life) scraps.splice(i, 1);
+    }
     if (!foldedOnce && H.isOpen && H.isOpen() === false) { foldedOnce = true; toast('two shy folk show their faces only on the folded page'); }
   });
+
+  // the found flourish: one coordinated ~0.8 s beat on the harness clock. The folk's card hops on its hinge (three
+  // beats then settled; the painter's FlapSpring reads p > 1 as a small lean past upright, its documented overshoot),
+  // an ink "found" print stays on the ground where it stood, 5-7 card scraps fly out, and the HUD token pastes in.
+  function hop(f) {
+    // a card already lying in the folded stack has no standing fold to bounce: there the stamp and scraps carry the
+    // flourish instead of lifting it out of the page
+    if (H.isOpen && H.isOpen() === false) return;
+    const sp = f.h.spring;
+    const beat = (p) => { sp.p = p; sp.v = 0; sp.target = 1; sp.locked = true; sp.atRest = false; };
+    beat(1.18); after(0.09, () => beat(0.94)); after(0.19, () => beat(1.04)); after(0.30, () => beat(1));
+  }
+  function foundFlourish(f) {
+    hop(f);
+    stamps.push({ x: f.x, z: f.z, t: 0, rot: (((f.id * 2.399) % 1) - 0.5) * 0.35 });
+    const c = cvEl(), [sx, sy] = H.proj(f.x, 0.75, f.z), u = Math.max(4, c.height * 0.008), n = 5 + (f.id % 3);
+    for (let i = 0; i < n; i++) {
+      const a = i / n * Math.PI * 2 + 0.6, sp = (0.12 + ((i * 37 + f.id * 11) % 10) / 10 * 0.16) * c.height;
+      scraps.push({ x: sx, y: sy, vx: Math.cos(a) * sp, vy: -Math.abs(Math.sin(a)) * sp * 0.8 - c.height * 0.05,
+        rot: a, vr: (i % 2 ? 1 : -1) * (3 + (i % 3)), w: u * (0.8 + (i % 3) * 0.25), h: u * 0.55, t: 0, life: 0.9, col: i % 2 ? '#dcb055' : '#f3e6c8' });
+    }
+    after(0.25, () => { if (H.sound) H.sound.step({ surface: 'path', seed: 4100 + f.id }); });   // the stamp's quiet tap
+  }
 
   function collect(f) {
     f.found = true;
     hintStuck = 0; if (bf.active) hideButterfly();   // the hint's job is done: no butterfly for a found world
     if (H.sound) H.sound.flap({ size: 0.5, up: true, key: 'folk' + f.id });
-    // a happy paper rise and settle: the 3D game nudges its spring's target past upright; this engine's FlapSpring only
-    // rises toward target 1, so kick the latched spring's velocity instead and let its own quiver settle it back
-    { const sp = f.h.spring; sp.locked = true; sp.target = 1; sp.atRest = false; sp.v = 3; }
+    foundFlourish(f);
     const tok = $('tok' + f.id); if (tok) tok.classList.add('found');
     const n = FOLK.filter((x) => x.found).length;
-    const count = $('count'); if (count) count.textContent = n + ' of ' + FOLK.length;
+    const count = $('count');
+    if (count) {
+      count.textContent = n + ' of ' + FOLK.length;
+      count.classList.remove('ping'); void count.offsetWidth; count.classList.add('ping');   // a brief ink ring on the count
+    }
     toast({ mouse: 'a mouse!', snail: 'a snail!', beetle: 'a beetle!', hedgehog: 'a hedgehog!', frog: 'a frog!', robin: 'a robin!', moth: 'a moth!', fish: 'a fish!' }[f.kind] + (f.shy ? ' (the shy one)' : ''));
     if (n === FOLK.length) win();
   }
@@ -588,11 +684,12 @@ const PFG = (() => {
   // ---- the test hook (?seed=N drives it): positions, screen places, visibility and synthetic clicks ------------------
   return {
     ver: 1, seed: SEED, folk: FOLK,
-    state: () => ({ seed: SEED, foldOpen: H.isOpen ? H.isOpen() : null, found: FOLK.filter((f) => f.found).length, total: FOLK.length, done }),
+    state: () => ({ seed: SEED, foldOpen: H.isOpen ? H.isOpen() : null, found: FOLK.filter((f) => f.found).length, total: FOLK.length, done, stamps: stamps.length }),
     // clickClear: standing coverage (the 2D sibling of the 3D probe rays); facing: +1 the print is toward the camera,
     // -1 a turned card; screen: CSS px of the folk's VISIBLE card centre, in the world's current fold state
     probe: () => FOLK.map((f) => { const v = visibility(f); return { id: f.id, kind: f.kind, shy: f.shy, x: +f.x.toFixed(1), z: +f.z.toFixed(1), clickClear: v.clear, facing: f.shy ? -1 : 1, onScreen: safeOnScreen(f), screen: project(f), found: f.found, starter: !!f.starter }; }),
     click: (id) => { const f = FOLK[id], [sx, sy] = project(f); dispatchEvent(new PointerEvent('pointerdown', { clientX: sx, clientY: sy })); dispatchEvent(new PointerEvent('pointerup', { clientX: sx, clientY: sy })); },
+    hint: manualHint,   // the same code path the "hint" tab's click uses
     fold: () => H.setOpen(!H.isOpen()),
   };
 })();
