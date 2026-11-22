@@ -4,11 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>paperfair — a pop-up carnival shooting gallery</title>
-<meta name="description" content="A dusk paper carnival: shoot the ducks, balloons and prize stars before the ticket runs out. Everything folds up from the printed page.">
+<meta name="description" content="A dusk paper carnival: shoot the tin cans, bottles, pie tins, balloons and prize stars with a paper pop-gun before the ticket runs out. Everything folds up from the printed page.">
 <link rel="icon" href="data:,">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #b7a88b; }
-  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: none; }
+  /* the OS pointer is ALWAYS visible over the canvas: the printed reticle is an aid, never a replacement
+     (cursor:none here was the bug that made the fair unplayable). crosshair reads as "aim here". */
+  html, body { cursor: default; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; z-index: 0; }
 
   /* paper, ink, light: the HUD is a fairground scorecard and a torn ticket, never chrome */
   :root { --page: #efe0c2; --core: #fbf6ea; --ink: #33211d; --coral: #cf4f3e; --gold: #d9a441; --shadow: rgba(51, 33, 29, .45); }
@@ -33,9 +36,10 @@
   }
 
   /* the ticket strip along the top edge: twelve tear lines, one torn off every five seconds */
+  /* hung flush on the calm top edge, clear of the blurred counter band at the bottom */
   #ticket {
-    position: fixed; top: 0; left: 50%; transform: translateX(-50%);
-    z-index: 24; display: flex; align-items: stretch; height: 27px;
+    position: fixed; top: -3px; left: 50%; transform: translateX(-50%);
+    z-index: 24; display: flex; align-items: stretch; height: 25px;
     background: var(--core); color: var(--ink); border: 1px solid rgba(51, 33, 29, .55);
     border-top: 0; box-shadow: 0 2px 4px var(--shadow), 0 10px 22px -8px var(--shadow);
     font: 600 8px/1 Georgia, serif; letter-spacing: .16em; text-transform: uppercase;
@@ -115,9 +119,9 @@
     background: var(--ink); opacity: .7; box-shadow: 0 0 0 2px rgba(51, 33, 29, .14);
   }
   #help-tab {
-    position: fixed; top: 40px; right: 16px; width: 26px; height: 30px; padding: 0;
+    position: fixed; top: 36px; right: 16px; width: 26px; height: 30px; padding: 0;
     display: flex; align-items: center; justify-content: center;
-    z-index: 9; pointer-events: auto; cursor: pointer; appearance: none; -webkit-appearance: none;
+    z-index: 30; pointer-events: auto; cursor: pointer; appearance: none; -webkit-appearance: none;
     background: var(--core); color: var(--ink); border: 1px solid rgba(51, 33, 29, .55);
     font: 15px/1 Georgia, serif; box-shadow: 0 2px 4px var(--shadow);
     clip-path: polygon(0 8%, 5% 0, 95% 3%, 100% 12%, 99% 90%, 94% 100%, 6% 97%, 1% 88%);
@@ -200,7 +204,7 @@
       window.addEventListener('error', function (e) { errText = (e && e.message) || 'unknown'; }, true);
       var box = document.createElement('div');
       box.id = 'pf-debug';
-      box.style.cssText = 'position:fixed;left:10px;top:10px;z-index:99;background:#fbf6ea;color:#33211d;border:1.5px solid #33211d;padding:10px 14px;font:13px/1.6 Consolas,monospace;max-width:80vw;box-shadow:0 2px 10px rgba(0,0,0,.35)';
+      box.style.cssText = 'position:fixed;left:10px;top:10px;z-index:99;pointer-events:none;background:#fbf6ea;color:#33211d;border:1.5px solid #33211d;padding:10px 14px;font:13px/1.6 Consolas,monospace;max-width:80vw;box-shadow:0 2px 10px rgba(0,0,0,.35)';
       document.body.appendChild(box);
       setInterval(function () {
         var cv = document.querySelector('canvas');
@@ -236,8 +240,8 @@
   <div class="sheet">
     <h2>how to play</h2>
     <ul>
-      <li>click to shoot</li>
-      <li>ducks fold when hit</li>
+      <li>click to shoot the pop-gun</li>
+      <li>cans, bottles, tins &amp; stars fold when hit</li>
       <li>60 seconds — beat your best</li>
     </ul>
   </div>

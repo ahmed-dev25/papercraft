@@ -1,8 +1,9 @@
 // papercraft / games / paperfair — a pop-up carnival shooting gallery in the kit's papercraft style.
 //
 // BRIEF      a dusk fairground shooting gallery, fixed 16:9 diorama, calm and warm; everything folds up from the page.
-// SUBJECT    a long target rail of ducks, balloons and prize stars in front of a prize backboard, behind a blurred
-//            wooden counter; the eye lands on the rail (sharp band) and follows the torn sawdust lane up from the counter.
+// SUBJECT    a long target rail of tin cans, bottles, pie tins, balloons and prize stars in front of a prize backboard,
+//            behind a blurred wooden counter; a paper pop-gun in the near foreground follows the pointer. The eye lands
+//            on the rail (sharp band) and follows the torn sawdust lane up from the counter.
 // STOCK      cardstock for every printed card, kraft backs, tissue for the lantern shades, corrugated for crates.
 // PALETTE    ground #b7a88b (sawdust) · ground shadow #2e5a62 / #1f414c (deep teal) · lane #e7d5ae ·
 //            cream #f1e1bd · ochre #d99f45 · lead coral #cf4f3e / deep #9d3732 · gold #f0bd5a · ink #33211d ·
@@ -11,10 +12,12 @@
 //            leak #3a4460, warm paper lanterns #ffb070. No coloured fog; shadows are blue-violet.
 // LENS       fov 26, pitch 47, target [2,1.5,-6], focus on the rail: sharp band across the targets, blurred counter
 //            and far tents, 18 px maximum blur at 1080p; printed ground past every frame edge.
-// LAYOUT     counter z +10 · launch z +8.2 · lane z +7..-8.6 · target rail z -10.4 (deck -9.4..-12.8) ·
-//            prize backboard z -14.4 · poles x -24 / 29 · far tents x -34 / 37. 16:9 authored.
+// LAYOUT     counter z +10 · lane z +7..-8.6 · target rail z -10.4 (deck -9.4..-12.8, raised to 1.5) ·
+//            prize backboard z -14.4 · poles x -24 / 29 · far tents x -34 / 37 · the pop-gun at the near edge.
+//            16:9 authored.
 // MOTION     score-line hinges: targets rise with overshoot and fold flat with the kit's slap; bunting and flags
-//            sway; lanterns flicker subtly; confetti and moths on the fixed clock. No camera shake, no scale tricks.
+//            sway; lanterns flicker subtly; confetti and moths on the fixed clock. The pop-gun follows the aim with a
+//            damped turn and a short recoil. No camera shake, no scale tricks.
 // TYPES      platform (counter, rail), score-line flaps (targets, signs), layered flats (backboard, prizes, bunting),
 //            slotted crosses (poles, lanterns), drawnPiece (figures, props, targets), printed page (sawdust, lane).
 // SOUND      paper flaps on hinges, a quiet two-partial chime on a hit, a dull thump on a miss.
@@ -152,9 +155,8 @@ const popup = (pts, paint, o = {}) => H.popup(pts, paint, {
 });
 
 // world coordinates used by the game layer
-const RAIL_FRONT = -9.4, RAIL_Z = -10.45, DECK_Z = -9.4, DECK_D = 3.4, RAIL_TOP = 1.35 + .07;
+const RAIL_FRONT = -9.4, RAIL_Z = -10.45, DECK_Z = -9.4, DECK_D = 3.4, RAIL_H = 1.5, RAIL_TOP = RAIL_H + .07;
 const BOARD_Z = -14.4, COUNTER_Z = 10.0, COUNTER_H = 2.8;
-const LAUNCH = new T.Vector3(2, 3.08, 8.15);
 
 // ---- 4. the printed ground: sawdust, a torn lane, ticket stubs, confetti flecks --------------------------------
 const laneCtrl = [[.4, 8.8], [4.6, 5.4], [-.8, 1.2], [3.4, -3.4], [2.2, -8.6]];
@@ -418,7 +420,7 @@ function prizeJar() {
 function prizeStar() {
   return P2.drawnPiece((g, ink) => {
     g.fillStyle = ink(C.wood); D.rect(g, -.3, 0, .6, .48, .06);
-    g.fillStyle = ink(C.coral); D.poly(g, [[-.3, .46], [.3, .46], [.22, .58], [-.22, .58]]);
+    g.fillStyle = ink(C.coral); D.poly(g, [[-.3, .46], [.3, .46], [.22, .78], [-.22, .78]]);
     g.fillStyle = ink(C.gold); D.poly(g, starPts(0, 1.28, .85, .38, 5, PI / 2));
     g.fillStyle = ink(C.cream); D.poly(g, starPts(0, 1.28, .53, .24, 5, PI / 2));
     g.fillStyle = ink(C.coral); D.ell(g, 0, 1.28, .13, .13);
@@ -583,9 +585,9 @@ function wheelStand() {
     g.fillStyle = ink(C.wood); D.rect(g, -.1, 2.52, .2, .7, .04);
   }, { w: 3.2, h: 3.3, name: 'prize wheel stand' });
 }
-function paintWheel(P) {
+function paintWheel(P, cy0 = 0) {
   P.fill(C.cream); P.felt(.5);
-  const n = 10, r = Math.min(P.box.w, P.box.h) / 2 - .04, cx = 0, cy = 0;
+  const n = 10, r = Math.min(P.box.w, P.box.h) / 2 - .04, cx = 0, cy = cy0;
   const cols = [C.coral, C.cream, C.gold, C.tealLight, C.coralSoft];
   P.layer((g) => {
     for (let i = 0; i < n; i++) {
@@ -599,8 +601,8 @@ function paintWheel(P) {
     g.fillStyle = rgba(C.ink, .55);
     for (let i = 0; i < n; i++) { const a = (i + .5) / n * TAU; g.beginPath(); g.arc(Math.cos(a) * r * .68, Math.sin(a) * r * .68, .02 * P.U, 0, TAU); g.fill(); }
   });
-  disc(P, 0, 0, .12 * P.U, .12 * P.U, C.ink, { lip: .3, shadow: .4, depth: .5 });
-  disc(P, -.02 * P.U, .02 * P.U, .055 * P.U, .055 * P.U, C.gold, { lip: .4, shadow: .4, depth: .4 });
+  disc(P, 0, cy, .12 * P.U, .12 * P.U, C.ink, { lip: .3, shadow: .4, depth: .5 });
+  disc(P, -.02 * P.U, cy + .02 * P.U, .055 * P.U, .055 * P.U, C.gold, { lip: .4, shadow: .4, depth: .4 });
   P.innerShade(C.tealDeep, { alpha: .3, blurPx: 6 });
 }
 function wheelPointer() {
@@ -622,13 +624,13 @@ function buildWorld() {
     for (let i = 0; i <= n; i++) D.rect(g, -w / 2 + i * (w - .22) / n, 0, .22, h, .03);
   }, { w: w + .12, h: h + .05, name: 'posts face' });
   const rail = platform({
-    w: 38, d: DECK_D, h: 1.35, paper: H.paper, seed: 511,
-    facePts: postsFace(38, 1.35, 10), supportPts: postsFace(35, 1.35, 8).map(([x, y]) => [x, y - 1.35]),
+    w: 38, d: DECK_D, h: RAIL_H, paper: H.paper, seed: 511,
+    facePts: postsFace(38, RAIL_H, 10), supportPts: postsFace(35, RAIL_H, 8).map(([x, y]) => [x, y - RAIL_H]),
     paints: { face: paintRailFace, deck: paintRailDeck, support: (P) => paintPlanks(P, C.woodDark, { n: 2, vertical: true }) },
     print: H.cardOpts(2, DECK_Z),
   });
   rail.name = 'target rail';
-  const railH = popup(null, null, { node: rail, height: 1.35, x: 2, z: RAIL_FRONT, level: true });
+  const railH = popup(null, null, { node: rail, height: RAIL_H, x: 2, z: RAIL_FRONT, level: true });
   H.spots.rail = [2, RAIL_Z];
   const endPostPts = P2.fromDrawing((g) => {
     D.rect(g, -.22, 0, .44, 1.15, .05);
@@ -647,18 +649,26 @@ function buildWorld() {
     ...cardOpt(), paint: paintShelf, thickness: .07, edgeWidth: .07, back: 'kraft', folds: [],
   });
   shelfTop.rotation.x = -PI / 2; shelfTop.position.set(0, 2.42, .96); board.pivot.add(shelfTop);
-  const shel = makeCard([[-14.4, 0], [14.4, 0], [14.4, .16], [13.4, .26], [-13.4, .26], [-14.4, .16]], {
+  const shel = makeCard([[-14.4, 0], [14.4, 0], [14.4, .07], [13.4, .12], [-13.4, .12], [-14.4, .07]], {
     ...cardOpt(), paint: paintShelfEdge, thickness: .07, edgeWidth: .07, back: 'kraft',
   });
-  shel.position.set(0, 2.4, .99); board.pivot.add(shel);
+  shel.position.set(0, 2.42, .99); board.pivot.add(shel);
   const prizeDefs = [[-12.1, 'jar'], [-7.3, 'teddy'], [-2.2, 'star'], [2.8, 'horn'], [8.2, 'crown'], [12.55, 'jar']];
   const prizePieces = { jar: prizeJar, teddy: prizeTeddy, star: prizeStar, horn: prizeHorn, crown: prizeCrown };
+  const prizeMeshes = [];
   for (const [px, kind] of prizeDefs) {
     const [pts, paint] = prizePieces[kind]();
     const m = makeCard(pts, { ...cardOpt(), paint, thickness: .07, edgeWidth: .07, back: 'kraft' });
-    m.position.set(px, 2.5, .45); m.rotation.y = (rnd() - .5) * .05;
-    board.pivot.add(m);
+    // z .82 stands the prize INSIDE the shelf top (which spans local z .53..1.39), not behind its back edge,
+    // and y 2.49 rests the cut base on the shelf: no prize pokes through the board face or floats over the gap
+    m.position.set(px, 2.49, .82); m.rotation.y = (rnd() - .5) * .05;
+    board.pivot.add(m); prizeMeshes.push(m);
   }
+  // while the backboard is still folded flat, the horizontal shelf and the standing prizes would sweep through the
+  // printed page; they only appear once the board is past halfway up (a beat nobody can see at the far focus)
+  const setShelfVisible = (v) => { shelfTop.visible = shel.visible = v; for (const m of prizeMeshes) m.visible = v; };
+  setShelfVisible(false);   // the folded board starts the first beat under the page
+  H.onStep(() => setShelfVisible(board.p > .45));
   // the long bunting swag: a string with triangular cards, parented to the board so it rises with it
   const flagMats = [
     H.printed(triPts, (P) => paintFlag(P, C.cream, C.coral, C.gold)),
@@ -729,10 +739,13 @@ function buildWorld() {
   popup(...benchPiece(), { x: -17.6, z: .8, yaw: -.18, scale: 1.1 });
   const wheelStandH = popup(...wheelStand(), { x: 23.4, z: -3.2, yaw: -.12, scale: 1.1 });
   {
-    const [wp, paint] = [P2.fromDrawing((g) => D.ell(g, 0, 0, 1.55, 1.55), { w: 3.2, h: 3.2, name: 'wheel' }), paintWheel];
+    // a full prize wheel, mounted on a pivot at its own centre so it spins in place (the old card was a half-disc
+    // traced from a circle centred on the card base, and it swung around that base instead of turning)
+    const [wp, paint] = [P2.fromDrawing((g) => D.ell(g, 0, 1.6, 1.55, 1.55), { w: 3.2, h: 3.3, name: 'wheel' }), (P) => paintWheel(P, 1.6)];
     const wheel = makeCard(wp, { ...H.cardOpts(23.4, -3.2), paint, thickness: .07, edgeWidth: .07, back: 'kraft', folds: [] });
-    wheel.position.set(0, 3.34, .24); wheelStandH.pivot.add(wheel);
-    H.onStep((t) => { wheel.rotation.z = -t * .18; });
+    const wheelPivot = new T.Group(); wheelPivot.position.set(0, 3.34, .24); wheelStandH.pivot.add(wheelPivot);
+    wheel.position.set(0, -1.6, 0); wheelPivot.add(wheel);
+    H.onStep((t) => { wheelPivot.rotation.z = -t * .18; });
     const [pp, pointerPaint] = wheelPointer();
     const pointer = makeCard(pp, { ...H.cardOpts(23.4, -3.2), paint: pointerPaint, thickness: .05, edgeWidth: .05, back: 'kraft', folds: [] });
     pointer.position.set(0, 4.88, .34); wheelStandH.pivot.add(pointer);
@@ -747,6 +760,197 @@ function buildWorld() {
 }
 
 buildWorld();
+
+// ---- 6h. the paper pop-gun: a six-card toy held in the blurred near band, bottom-right ---------------------------
+// It is placed in CAMERA space (grip just off the bottom-right corner at 13 units depth), so it always sits in the
+// same corner of the frame whatever the letterbox; its world size follows the lens, so it reads the same at 16:9.
+// The rig is non-pickable and never part of hit tests: raycast is disabled on every mesh.
+const GUN = (() => {
+  const CARD = { paper: H.paper, thickness: .06, edgeWidth: .06, pxPerUnit: 34, effects: 1, back: 'kraft' };
+  const rig = new T.Group();          // camera-space pose
+  const aim = new T.Group();          // yaw/pitch + recoil on top of it
+  rig.add(aim); scene.add(rig);
+  const add = (pts, paint, z, order = 0) => {
+    const m = makeCard(pts, { ...CARD, seed: 4300 + order, paint });
+    m.position.z = z;
+    m.castShadow = false; m.receiveShadow = false;
+    m.traverse((o) => { if (o.isMesh) o.raycast = () => {}; });
+    aim.add(m);
+    return m;
+  };
+
+  // barrel: cream cardstock, an ochre strip, a coral painted band, ink rivets; the cork sits on the muzzle
+  const barrelPts = [[-.065, -.313], [.065, .313], [-2.349, .745], [-2.451, .255]];
+  const ang = Math.atan2(.50, -2.4), CA = Math.cos(ang), SA = Math.sin(ang);
+  add(barrelPts, (P) => {
+    P.gradient(sh(C.cream, .08), sh(C.creamDeep, -.1), .4); P.felt(.5);
+    P.layer((g) => {
+      g.save(); g.rotate(ang); g.fillStyle = C.ochre; g.fillRect(.12, .1, 2.1, .18); g.restore();
+    }, C.ochre, { lip: .6, shadow: .5, depth: .8 });
+    P.layer((g) => {   // the red painted band, a separate glued strip
+      g.save(); g.rotate(ang); g.fillStyle = C.coral; g.fillRect(1.5, -.25, .28, .5); g.restore();
+    }, C.coral, { lip: .85, shadow: .7, depth: 1.1 });
+    P.draw((g) => {
+      g.save(); g.rotate(ang);
+      g.strokeStyle = rgba(C.ink, .7); g.lineWidth = .04;
+      g.beginPath(); g.moveTo(.18, -.275); g.lineTo(2.26, -.215); g.moveTo(.2, .275); g.lineTo(2.24, .215); g.stroke();
+      g.fillStyle = rgba(C.ink, .55);
+      for (let x = .46; x < 2.2; x += .42) { g.beginPath(); g.arc(x, -.21, .033, 0, TAU); g.fill(); }
+      g.restore();
+    });
+    P.innerShade(sh(C.ochreDeep, -.25), { alpha: .24, blurPx: 5 });
+  }, .16, 1);
+
+  // muzzle collar: a small ochre band card slipped over the barrel tip
+  const collar = add([[-.075, -.25], [.075, -.25], [.075, .25], [-.075, .25]], (P) => {
+    P.fill(C.ochre); P.felt(.4);
+    P.draw((g) => {
+      g.strokeStyle = rgba(C.ink, .6); g.lineWidth = .03;
+      g.beginPath(); g.moveTo(-.075, -.25); g.lineTo(-.075, .25); g.moveTo(.075, -.25); g.lineTo(.075, .25); g.stroke();
+      g.fillStyle = rgba(C.coral, .9); g.fillRect(-.075, -.05, .15, .1);
+    });
+  }, .31, 2);
+  collar.position.set(2.08 * CA, 2.08 * SA, .31); collar.rotation.z = ang;
+
+  // cork: a tiny cream cylinder-card on the muzzle, with a coral thread
+  const corkPts = rr(-.26, -.22, .52, .44, .13);
+  const cork = add(corkPts, (P) => {
+    P.fill('#e9dcc0'); P.felt(.6);
+    P.layer((g) => {
+      g.fillStyle = C.creamDeep; g.beginPath(); g.ellipse(0, .03, .18, .22, 0, 0, TAU); g.fill();
+    }, C.creamDeep, { lip: .8, shadow: .6, depth: .8 });
+    P.draw((g) => {
+      g.strokeStyle = rgba(C.ink, .55); g.lineWidth = .028;
+      g.beginPath(); g.ellipse(0, .03, .18, .22, 0, 0, TAU); g.stroke();
+      g.strokeStyle = rgba(C.coral, .9); g.lineWidth = .04;
+      g.beginPath(); g.moveTo(-.22, -.17); g.quadraticCurveTo(0, -.31, .22, -.17); g.stroke();
+    });
+  }, .30, 3);
+  cork.position.set(-2.43, .51, .30); cork.rotation.z = ang;
+
+  // stock: a chunky folded card; its broad left lobe reads under the barrel in the bottom-right corner
+  const stockPts = [[-1.45, -.5], [-.6, -1.95], [.9, -1.8], [1.05, .12], [.7, .42], [-1.0, .36]];
+  add(stockPts, (P) => {
+    P.gradient(sh(C.creamDeep, .08), sh(C.ochre, -.06), .55); P.felt(.6);
+    P.draw((g) => {
+      g.strokeStyle = rgba(C.ink, .7); g.lineWidth = .05; g.lineJoin = 'round';
+      g.beginPath(); stockPts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.stroke();
+      g.fillStyle = rgba(C.ink, .32);
+      for (let y = -.5; y > -1.7; y -= .34) g.fillRect(-.55 + (y + 1.9) * .2, y, .85, .035);
+    });
+    P.innerShade(sh(C.ochreDeep, -.3), { alpha: .3, blurPx: 6 });
+  }, 0, 4);
+
+  // cheek plate: a coral-edged ochre overlay on the stock, a real second card
+  add([[-1.18, -.2], [-.5, -1.45], [.4, -1.3], [.52, .04], [.2, .24], [-.92, .18]], (P) => {
+    P.fill(C.ochre); P.felt(.5);
+    P.draw((g) => {
+      g.strokeStyle = rgba(C.ink, .6); g.lineWidth = .05; g.lineJoin = 'round';
+      g.beginPath(); g.moveTo(-1.18, -.2); g.lineTo(-.5, -1.45); g.lineTo(.4, -1.3); g.lineTo(.52, .04); g.lineTo(.2, .24); g.lineTo(-.92, .18); g.closePath(); g.stroke();
+      g.fillStyle = rgba(C.coral, .9); g.fillRect(-.8, -.36, 1.2, .11);
+      g.fillStyle = rgba(C.gold, .95); D.poly(g, starPts(-.7, -.06, .13, .055, 5, PI / 2));
+      g.fillStyle = rgba(C.cream, .9); g.beginPath(); g.arc(.12, -.08, .09, 0, TAU); g.fill();
+      g.fillStyle = rgba(C.ink, .55); g.beginPath(); g.arc(.12, -.08, .035, 0, TAU); g.fill();
+    });
+    P.innerShade(sh(C.ochreDeep, -.2), { alpha: .25, blurPx: 4 });
+  }, .08, 5);
+
+  // trigger guard: a C-shaped paper ring hanging under the barrel, its lower arc in view
+  const ringPts = [...arc(-.6, -.10, .28, .28, -PI * .15, PI * 1.15, 16), ...arc(-.6, -.10, .17, .17, PI * 1.15, -PI * .15, 12)];
+  add(ringPts, (P) => {
+    P.fill(C.ochreDeep); P.felt(.4);
+    P.draw((g) => {
+      g.strokeStyle = rgba(C.ink, .6); g.lineWidth = .035;
+      g.beginPath(); g.arc(-.6, -.10, .225, -PI * .1, PI * 1.1); g.stroke();
+      g.strokeStyle = rgba(C.ink, .75); g.lineWidth = .045; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(-.52, .07); g.lineTo(-.69, -.14); g.stroke();   // the trigger inside the guard
+    });
+  }, .24, 6);
+
+  // a paper puff on firing: one expanding cream ring and three scraps at the muzzle
+  const puffRingGeo = new T.RingGeometry(.10, .175, 18);
+  const puffRingMat = new T.MeshBasicMaterial({ color: '#f7ecd2', transparent: true, opacity: .9, depthWrite: false, side: T.DoubleSide });
+  const puffGeo = new T.PlaneGeometry(.16, .09);
+  const puffs = [];
+  const muzzle = new T.Object3D(); muzzle.position.set(-2.62, .58, .16); aim.add(muzzle);
+
+  const GRIP = { x: .90, y: -.70, depth: 13, at: 3.0 };   // NDC grip point, camera depth, half height at 16:9
+  const yaw = { v: 0 }, pitchV = { v: 0 };
+  let aimP = null, hasAim = false, recoilT = 99;
+  const _r = new T.Vector3(), _u = new T.Vector3(), _f = new T.Vector3(), _d = new T.Vector3(), _q = new T.Quaternion();
+  const _mw = new T.Vector3();
+
+  function place(dt) {
+    camera.updateMatrixWorld();
+    const q = camera.quaternion;
+    _r.set(1, 0, 0).applyQuaternion(q); _u.set(0, 1, 0).applyQuaternion(q); _f.set(0, 0, -1).applyQuaternion(q);
+    const halfH = GRIP.depth * Math.tan(camera.fov * PI / 360), halfW = halfH * camera.aspect;
+    rig.position.copy(camera.position)
+      .addScaledVector(_r, GRIP.x * halfW)
+      .addScaledVector(_u, GRIP.y * halfH)
+      .addScaledVector(_f, GRIP.depth);
+    rig.quaternion.copy(q);
+    rig.scale.setScalar(halfH / GRIP.at);   // same screen size in any lens
+
+    // aim: the reticle's ground point, in the rig's own frame; small clamps keep it a held toy, never a windmill
+    let wy = 0, wp = 0;
+    if (hasAim && aimP) {
+      _d.copy(aimP).sub(rig.position).applyQuaternion(_q.copy(q).invert());
+      const fwd = Math.max(.001, -_d.z);
+      wy = Math.max(-.30, Math.min(.30, Math.atan2(-_d.x, fwd)));
+      wp = Math.max(-.18, Math.min(.18, Math.atan2(_d.y, fwd)));
+    }
+    const k = 1 - Math.exp(-7.5 * (dt || 0));
+    yaw.v += (wy - yaw.v) * k; pitchV.v += (wp - pitchV.v) * k;
+
+    // recoil: a kick rising for .12 s, springing back over .25 s
+    recoilT += dt || 0;
+    const rt = recoilT, rec = rt < .12 ? (rt / .12) ** 2 * (3 - 2 * (rt / .12)) : Math.max(0, 1 - ((rt - .12) / .25) ** 2 * (3 - 2 * Math.min(1, (rt - .12) / .25)));
+    aim.rotation.set(pitchV.v, yaw.v, -.10 * rec);
+    aim.position.set(0, .05 * rec, .18 * rec);
+
+    for (let i = puffs.length - 1; i >= 0; i--) {
+      const p = puffs[i]; p.t += dt || 0;
+      const u = Math.min(1, p.t / p.life);
+      p.m.scale.setScalar(.8 + u * 1.8); p.mat.opacity = .9 * (1 - u);
+      if (p.t >= p.life) { aim.remove(p.m); p.mat.dispose(); puffs.splice(i, 1); }
+    }
+  }
+
+  function fire() {
+    recoilT = 0;
+    place(0);
+    rig.updateMatrixWorld(true);
+    aim.updateMatrixWorld(true);
+    muzzle.getWorldPosition(_mw);
+    const ring = new T.Mesh(puffRingGeo, puffRingMat.clone());
+    ring.position.copy(muzzle.position); ring.position.z += .05;
+    ring.renderOrder = 4; aim.add(ring); puffs.push({ m: ring, mat: ring.material, t: 0, life: .34 });
+    for (let i = 0; i < 4; i++) {
+      const mat = new T.MeshBasicMaterial({ color: i % 2 ? '#e8d6ae' : '#f8eed8', transparent: true, opacity: .95, depthWrite: false, side: T.DoubleSide });
+      const m = new T.Mesh(puffGeo, mat);
+      m.position.copy(muzzle.position); m.position.x += (Math.random() - .5) * .22; m.position.y += (Math.random() - .5) * .2;
+      m.rotation.z = Math.random() * TAU; m.renderOrder = 4;
+      aim.add(m); puffs.push({ m, mat, t: 0, life: .22 + Math.random() * .1, vx: (Math.random() - .5) * .9, vy: .35 + Math.random() * .5 });
+    }
+    return _mw.clone();
+  }
+
+  // the puffs drift in local x/y (simplest readable paper scraps in the near band)
+  H.onStep((t, dt) => {
+    for (const p of puffs) if (p.vx) { p.m.position.x += p.vx * dt; p.m.position.y += p.vy * dt; }
+    place(dt);
+  });
+
+  return {
+    group: rig,
+    aimAt: (p) => { if (p) { aimP = (aimP || new T.Vector3()).copy(p); hasAim = true; } },
+    fire,
+    muzzleWorld: () => { aim.updateMatrixWorld(true); return muzzle.getWorldPosition(_mw).clone(); },
+    state: () => ({ yaw: +yaw.v.toFixed(3), pitch: +pitchV.v.toFixed(3), recoil: +Math.max(0, Math.min(1, recoilT < .12 ? recoilT / .12 : 1 - (recoilT - .12) / .25)).toFixed(2) }),
+    muzzleScreen: () => { aim.updateMatrixWorld(true); const p = muzzle.getWorldPosition(_mw).clone().project(camera); const r = document.querySelector('canvas').getBoundingClientRect(); return [Math.round(r.left + (p.x + 1) / 2 * r.width), Math.round(r.top + (1 - p.y) / 2 * r.height)]; },
+  };
+})();
 
 // ---- 7. the world's life: moths at the lanterns, drifting confetti and dust; all on the fixed clock ------------
 const life = createLife({ scene: H.scene, camera: H.camera, heroHeight: H.heroHeight, seed: 73, wind: [.7, .18], box: { w: 21, d: 9, h: 3 } });
@@ -767,23 +971,69 @@ H.onStep((t) => {
 
 // ---- 8. the game: the shooting gallery, score, streak, ticket clock, end card -------------------------------
 const GAME = (() => {
-  // 8a. target prints: one shared print per kind, stamped on the pool's cards (three at most in view per kind)
-  const duck = (() => {
+  // 8a. target prints: one shared print per kind, stamped on the pool's cards (several of a kind may stand at once).
+  // Every target is a NON-LIVING fairground object: a tin can, a bottle, a pie tin, a balloon, a prize star.
+  // Each print is a layered cut-paper collage with an accent layer (law 4), sized 15-20% up for readability at dusk.
+  const enlarge = (draw, w, h, name, k = 1.18) => P2.drawnPiece((g, ink) => { g.save(); g.scale(k, k); draw(g, ink); g.restore(); }, { w: w * k, h: h * k, name });
+  const can = (() => {
     const [pts, paint] = P2.drawnPiece((g, ink) => {
-      g.fillStyle = ink(C.coralDeep); D.rect(g, -.62, 0, .26, .24, .05); D.rect(g, .22, 0, .26, .24, .05);
-      g.fillStyle = ink('#e3ac3e'); D.ell(g, -.08, .72, .9, .52);
-      g.fillStyle = ink('#c98a2f'); D.ell(g, -.3, .78, .44, .3);
-      g.fillStyle = ink('#edbd50'); D.ell(g, .62, 1.25, .38, .38);
-      g.fillStyle = ink(C.coral); D.poly(g, [[.94, 1.27], [1.3, 1.18], [.96, 1.08]]);
-      g.fillStyle = ink(C.coral); D.ell(g, .08, .82, .16, .16);
-      g.fillStyle = ink('#f7ecd2', 'print'); D.ell(g, .08, .82, .07, .07);
-      g.fillStyle = ink(C.ink, 'print'); D.ell(g, .7, 1.32, .045, .05);
-      g.fillStyle = ink('#fff4da', 'print'); D.ell(g, .72, 1.34, .018, .018);
-    }, { w: 2.8, h: 1.8, name: 'target duck' });
-    return { pts, mats: H.printed(pts, paint, { res: 1.1 }), h: P2.bbox(pts).h, w: P2.bbox(pts).w, points: 10, name: 'duck' };
+      g.fillStyle = ink('#a99f8a'); D.ell(g, 0, .15, .72, .13);            // base shadow ring
+      g.fillStyle = ink('#d8cfba'); D.poly(g, [[-.7, .14], [.7, .14], [.64, 1.66], [-.64, 1.66]]);
+      g.fillStyle = ink('#eae2cd'); D.poly(g, [[-.54, .2], [.54, .2], [.5, 1.62], [-.5, 1.62]]);
+      g.fillStyle = ink(C.coral); D.rect(g, -.7, .82, 1.4, .35, .02);      // the red band
+      g.fillStyle = ink(C.coralDeep); D.rect(g, -.7, .82, 1.4, .07);
+      g.fillStyle = ink(C.cream); D.rect(g, -.66, .98, 1.32, .05);
+      g.fillStyle = ink(C.gold); D.poly(g, starPts(0, 1.4, .2, .085, 5, PI / 2));
+      g.fillStyle = ink('#f4edda'); D.ell(g, 0, 1.68, .7, .16);            // rolled top rim
+      g.fillStyle = ink('#b8ae99'); D.ell(g, 0, 1.68, .57, .115);
+      g.fillStyle = ink('#7e7664', 'print'); D.ell(g, 0, 1.66, .45, .075);
+      g.fillStyle = ink(C.creamDeep); D.rect(g, -.7, .18, 1.4, .07);       // bottom seam
+      g.fillStyle = ink(C.ink, 'print');
+      for (const [x, y] of [[-.5, .55], [.5, .55], [-.5, 1.3], [.5, 1.3]]) D.ell(g, x, y, .04, .04);
+      g.strokeStyle = 'rgba(51,33,29,.45)'; g.lineWidth = .028;
+      g.beginPath(); g.moveTo(-.62, .42); g.lineTo(-.58, 1.5); g.stroke();
+    }, { w: 1.6, h: 1.9, name: 'target tin can' });
+    return { pts, mats: H.printed(pts, paint, { res: 1.1 }), h: P2.bbox(pts).h, w: P2.bbox(pts).w, points: 10, name: 'can' };
+  })();
+  const bottle = (() => {
+    const [pts, paint] = P2.drawnPiece((g, ink) => {
+      g.fillStyle = ink(C.tealDeep); D.ell(g, 0, .12, .55, .09);
+      g.fillStyle = ink('#356b70'); D.rect(g, -.55, .1, 1.1, .16, .04);
+      g.fillStyle = ink('#3e7c80'); D.poly(g, [[-.51, .14], [.51, .14], [.56, .96], [.34, 1.4], [.18, 1.62], [.18, 2.22], [.24, 2.32], [.24, 2.44], [-.24, 2.44], [-.24, 2.32], [-.18, 2.22], [-.18, 1.62], [-.34, 1.4], [-.56, .96]]);
+      g.fillStyle = ink(C.teal); D.rect(g, -.38, .2, .62, .88, .16);       // the glass front
+      g.fillStyle = ink('#8fb8ae'); D.rect(g, -.34, .26, .14, .9, .05);    // a pale highlight down the glass
+      g.fillStyle = ink(C.cream); D.rect(g, -.45, .58, .9, .58, .04);      // the paper label
+      g.fillStyle = ink(C.coral); D.rect(g, -.45, .58, .9, .07); D.rect(g, -.45, 1.09, .9, .07);
+      g.fillStyle = ink(C.gold); D.poly(g, starPts(0, .87, .15, .065, 5, PI / 2));
+      g.fillStyle = ink(C.ink, 'print');
+      g.fillRect(-.34, .68, .36, .03); g.fillRect(-.34, .99, .5, .03);
+      g.fillStyle = ink(C.ochreDeep); D.rect(g, -.27, 2.44, .54, .2, .05); // crimped cap
+      g.fillStyle = ink(C.coral, 'print'); D.rect(g, -.27, 2.5, .54, .05);
+      g.strokeStyle = 'rgba(51,33,29,.5)'; g.lineWidth = .03;
+      g.beginPath(); g.moveTo(.2, 1.66); g.lineTo(.2, 2.22); g.stroke();
+    }, { w: 1.4, h: 2.7, name: 'target bottle' });
+    return { pts, mats: H.printed(pts, paint, { res: 1.1 }), h: P2.bbox(pts).h, w: P2.bbox(pts).w, points: 15, name: 'bottle' };
+  })();
+  const plate = (() => {
+    const [pts, paint] = P2.drawnPiece((g, ink) => {
+      g.fillStyle = ink(C.coralDeep); D.ell(g, 0, .8, 1.1, .8);             // the red enamel rim
+      g.fillStyle = ink(C.coral); D.ell(g, 0, .81, 1.02, .73);
+      g.fillStyle = ink(C.cream); D.ell(g, 0, .82, .94, .66);               // the tin face
+      g.fillStyle = ink(C.creamDeep); D.ell(g, 0, .83, .78, .53);
+      g.fillStyle = ink(C.gold); D.poly(g, starPts(0, .83, .2, .085, 5, PI / 2));
+      g.fillStyle = ink(C.coral, 'print'); D.ell(g, 0, .83, .1, .1);
+      g.fillStyle = ink(C.cream, 'print'); D.ell(g, 0, .83, .045, .045);
+      g.strokeStyle = 'rgba(51,33,29,.5)'; g.lineWidth = .028;
+      g.beginPath(); g.ellipse(0, .83, .62, .42, 0, 0, TAU); g.stroke();
+      g.strokeStyle = 'rgba(157,55,50,.85)'; g.lineWidth = .045;
+      g.beginPath(); g.ellipse(0, .82, .87, .6, 0, 0, TAU); g.stroke();
+      g.strokeStyle = 'rgba(51,33,29,.4)'; g.lineWidth = .022;
+      for (let i = 0; i < 22; i++) { const a = i / 22 * TAU; g.beginPath(); g.moveTo(Math.cos(a) * .99, .81 + Math.sin(a) * .72); g.lineTo(Math.cos(a) * 1.09, .8 + Math.sin(a) * .8); g.stroke(); }
+    }, { w: 2.25, h: 1.68, name: 'target pie tin' });
+    return { pts, mats: H.printed(pts, paint, { res: 1.1 }), h: P2.bbox(pts).h, w: P2.bbox(pts).w, points: 10, name: 'plate' };
   })();
   const balloon = (() => {
-    const [pts, paint] = P2.drawnPiece((g, ink) => {
+    const [pts, paint] = enlarge((g, ink) => {
       g.fillStyle = ink(C.woodDark); D.rect(g, -.34, 0, .68, .13, .04);
       g.fillStyle = ink(C.wood); D.rect(g, -.055, .1, .11, .8, .03);
       g.fillStyle = ink(C.coralDeep); D.poly(g, [[-.12, .88], [.12, .88], [0, .68]]);
@@ -792,20 +1042,23 @@ const GAME = (() => {
       g.fillStyle = ink(C.cream); D.ell(g, -.24, 1.85, .14, .27);
       g.fillStyle = ink(C.gold, 'print'); D.ell(g, 0, 1.52, .1, .1);
       g.fillStyle = ink(C.cream, 'print'); D.ell(g, 0, 1.52, .04, .04);
-    }, { w: 1.8, h: 2.55, name: 'target balloon' });
+    }, 1.8, 2.55, 'target balloon');
     return { pts, mats: H.printed(pts, paint, { res: 1.1 }), h: P2.bbox(pts).h, w: P2.bbox(pts).w, points: 15, name: 'balloon' };
   })();
   const star = (() => {
-    const [pts, paint] = P2.drawnPiece((g, ink) => {
+    const [pts, paint] = enlarge((g, ink) => {
       g.fillStyle = ink(C.wood); D.rect(g, -.32, 0, .64, .5, .06);
-      g.fillStyle = ink(C.coral); D.poly(g, [[-.32, .46], [.32, .46], [.22, .6], [-.22, .6]]);
+      // the collar reaches y .78 so it actually overlaps the star's lowest points (y .612): a 0.01 gap used to
+      // split the drawing in two and the tracer dropped the base
+      g.fillStyle = ink(C.coral); D.poly(g, [[-.32, .46], [.32, .46], [.22, .78], [-.22, .78]]);
       g.fillStyle = ink(C.gold); D.poly(g, starPts(0, 1.3, .85, .38, 5, PI / 2));
       g.fillStyle = ink(C.cream); D.poly(g, starPts(0, 1.3, .55, .24, 5, PI / 2));
       g.fillStyle = ink(C.coral); D.ell(g, 0, 1.3, .13, .13);
       g.fillStyle = ink(C.cream, 'print'); D.ell(g, 0, 1.3, .055, .055);
-    }, { w: 2.0, h: 2.2, name: 'target star' });
+    }, 2.0, 2.2, 'target star');
     return { pts, mats: H.printed(pts, paint, { res: 1.1 }), h: P2.bbox(pts).h, w: P2.bbox(pts).w, points: 25, name: 'star' };
   })();
+  const KINDS = { can, bottle, plate, balloon, star };
 
   // 8b. seeded round state
   let seed = +(QP.get('seed') || 0) || 1 + Math.floor(Math.random() * 999);
@@ -816,14 +1069,16 @@ const GAME = (() => {
   let best = 0; try { best = +(localStorage.getItem('pf-best') || 0) || 0; } catch (e) { best = 0; }
 
   // 8c. the spots: eleven free places along the rail; never closer than 1.6 units
-  const spots = Array.from({ length: 11 }, (_, i) => ({ x: 2 + (i - 5) * 3.2, z: RAIL_Z, t: null }));
+  const spots = Array.from({ length: 11 }, (_, i) => ({ x: 2 + (i - 5) * 3.0, z: RAIL_Z, t: null }));
   const centerSpot = spots[5];
   const pool = [];
   let nextId = 0;
-  for (const kind of ['duck', 'duck', 'duck', 'duck', 'duck', 'balloon', 'balloon', 'balloon', 'balloon', 'star', 'star', 'star', 'star', 'star', 'duck']) {
-    const k = kind === 'duck' ? duck : kind === 'balloon' ? balloon : star;
+  for (const kind of ['can', 'can', 'can', 'can', 'bottle', 'bottle', 'bottle', 'bottle', 'plate', 'plate', 'plate', 'balloon', 'balloon', 'star', 'star']) {
+    const k = KINDS[kind];
     const mesh = makeCard(k.pts, { materials: k.mats, paper: H.paper, thickness: .08, edgeWidth: .08, pxPerUnit: 44 });
-    const h = hinge(mesh, { at: new T.Vector3(0, RAIL_TOP, RAIL_Z), yaw: 0, open: 0, size: .32, rest: (nextId % 3 - 1) * .018 });
+    // the card's own hinge line is its base. `at` stays at the origin: spawn() places the whole group on the rail,
+    // so a world offset here would move every target twice (the old 2x RAIL_TOP/RAIL_Z bug put them behind the board).
+    const h = hinge(mesh, { at: new T.Vector3(0, 0, 0), yaw: 0, open: 0, size: .32, rest: (nextId % 3 - 1) * .018 });
     const t = { id: nextId++, kind, k, mesh, h, group: h.group, x: 0, z: RAIL_Z, scale: 1, standing: false, starter: false, hit: false,
       roseAt: 0, foldAt: 0, freeAt: -1, spot: null };
     h.group.visible = false;
@@ -832,29 +1087,43 @@ const GAME = (() => {
     pool.push(t);
   }
 
-  // 8d. the reticle: an inked dashed ring with a small cross, printed flat on the ground
+  // 8d. the reticle: a two-layer print, unmistakable over busy ground. A cream dashed ring (3.0 world units
+  // across) with an ink under-stroke, a thin ink ring and a small ink cross. It lies flat on the page print and is
+  // drawn over every card (depthTest off, high renderOrder): the OS cursor is always visible too, so aiming is read
+  // twice over. It is only shown while the pointer has a valid ground point; the last valid point is kept for firing.
   const ring = (() => {
-    const s = 256, c = document.createElement('canvas'); c.width = c.height = s;
-    const g = c.getContext('2d'); g.translate(s / 2, s / 2);
-    g.strokeStyle = '#40271f'; g.lineCap = 'round';
-    const wob = P2.rng(91);
-    for (let i = 0; i < 9; i++) {
-      const a0 = i / 9 * TAU + .07, a1 = (i + 1) / 9 * TAU - .07;
-      g.lineWidth = 7.2 + wob() * 1.4;
-      for (let q = 0; q < 3; q++) {
-        const b0 = a0 + (a1 - a0) * q / 3, b1 = a0 + (a1 - a0) * (q + 1) / 3, r = 86 * (1 + (wob() - .5) * .03);
-        g.beginPath(); g.arc(0, 0, r, b0, b1); g.stroke();
+    const s = 512, c = document.createElement('canvas'); c.width = c.height = s;
+    const g = c.getContext('2d'); g.translate(s / 2, s / 2); g.lineCap = 'round';
+    const R = s * .395, N = 12;
+    const band = (col, w, pad) => {
+      g.strokeStyle = col; g.lineWidth = w;
+      for (let i = 0; i < N; i++) {
+        const a0 = i / N * TAU + pad, a1 = (i + 1) / N * TAU - pad;
+        g.beginPath(); g.arc(0, 0, R, a0, a1); g.stroke();
       }
+    };
+    band('rgba(51,33,29,.9)', s * .074, .075);       // the cut edge under each cream dash
+    band('#f8eed6', s * .05, .09);                    // the cream dashed ring
+    g.strokeStyle = 'rgba(51,33,29,.92)'; g.lineWidth = s * .018; // thin ink ring
+    g.beginPath(); g.arc(0, 0, s * .275, 0, TAU); g.stroke();
+    g.lineWidth = s * .026; g.strokeStyle = '#33211d';
+    for (const [a, b] of [[-.135, -.045], [.045, .135]]) {
+      g.beginPath(); g.moveTo(a * s, 0); g.lineTo(b * s, 0); g.moveTo(0, a * s); g.lineTo(0, b * s); g.stroke();
     }
-    g.lineWidth = 5.6;
-    g.beginPath(); g.moveTo(-19, 0); g.lineTo(-6, 0); g.moveTo(6, 0); g.lineTo(19, 0); g.moveTo(0, -19); g.lineTo(0, -6); g.moveTo(0, 6); g.lineTo(0, 19); g.stroke();
-    g.beginPath(); g.arc(0, 0, 2.6, 0, TAU); g.fillStyle = '#40271f'; g.fill();
+    g.fillStyle = '#f8eed6'; g.beginPath(); g.arc(0, 0, s * .022, 0, TAU); g.fill();
+    g.strokeStyle = 'rgba(51,33,29,.95)'; g.lineWidth = s * .009; g.beginPath(); g.arc(0, 0, s * .022, 0, TAU); g.stroke();
     const tex = new T.CanvasTexture(c); tex.colorSpace = T.SRGBColorSpace;
-    const m = new T.Mesh(new T.PlaneGeometry(2.4, 2.4), new T.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, side: T.DoubleSide }));
-    m.rotation.x = -PI / 2; m.position.y = .045; m.renderOrder = 3; m.visible = false;
+    const m = new T.Mesh(new T.PlaneGeometry(3.0, 3.0), new T.MeshBasicMaterial({
+      map: tex, transparent: true, opacity: 0, depthTest: false, depthWrite: false, side: T.DoubleSide, toneMapped: false,
+    }));
+    m.rotation.x = -PI / 2; m.position.y = .055; m.renderOrder = 20; m.visible = false;
+    m.frustumCulled = false;
     scene.add(m); return m;
   })();
   let retTarget = 0, lastX = 0, lastZ = 0;
+  // the aim: the last valid ground point under the pointer (kept for firing when the pointer leaves the page)
+  const aim = { valid: false, shown: false, point: new T.Vector3(2, .055, -8), ndc: { x: 0, y: 0 } };
+  const pointer = { x: 0, y: 0, inside: false };
 
   // 8e. pellets, confetti and miss marks (all removed on the step clock)
   const pelletGeo = new T.IcosahedronGeometry(.105, 0);
@@ -937,7 +1206,7 @@ const GAME = (() => {
   // a quiet two-partial paper chime; the dull thump for a miss
   function chime(kind) {
     const ctx = H.sound?.ctx; if (!ctx) return;
-    const base = kind === 'star' ? 988 : kind === 'balloon' ? 784 : 659;
+    const base = kind === 'star' ? 988 : kind === 'bottle' || kind === 'balloon' ? 784 : 659;
     const t0 = ctx.currentTime + .012;
     for (const [mult, gain] of [[1, .045], [1.5, .022]]) {
       const o = ctx.createOscillator(), g = ctx.createGain();
@@ -975,7 +1244,7 @@ const GAME = (() => {
     return free.length ? free[Math.floor(waveRnd() * free.length)] : null;
   }
   function spawnStarter() {
-    const t = freeTarget('duck'); if (!t) return false;
+    const t = freeTarget('can'); if (!t) return false;
     return spawn(t, centerSpot, 1.2, true);
   }
   function spawnWave(n) {
@@ -984,7 +1253,7 @@ const GAME = (() => {
     let made = 0;
     for (const s of freeSpots) {
       if (made >= n) break;
-      const r = waveRnd(), kind = r < .48 ? 'duck' : r < .8 ? 'balloon' : 'star';
+      const r = waveRnd(), kind = r < .30 ? 'can' : r < .56 ? 'plate' : r < .76 ? 'bottle' : r < .92 ? 'balloon' : 'star';
       const t = freeTarget(kind) || freeTarget(null); if (!t) continue;
       if (spawn(t, s, .92 + waveRnd() * .16, false)) made++;
     }
@@ -1032,7 +1301,8 @@ const GAME = (() => {
     updateHud();
   }
 
-  // 8h. firing: one path for a real pointerdown and for the test hook
+  // 8h. firing: one path for a real pointerdown and for the test hook. The pellet leaves the POP-GUN MUZZLE (not the
+  // bottom-centre of the frame); the reticle lands on the shot's ground point; the gun kicks and puffs paper.
   function fireAtPx(cssX, cssY) {
     if (done) return false;
     if (gameTime - lastShot < .1) return false;
@@ -1040,16 +1310,22 @@ const GAME = (() => {
     if (!started) { started = true; roundStart = gameTime; updateHud(); }
     const ndc = cssToNdc(cssX, cssY);
     let gp = H.groundAt(ndc.x, ndc.y);
+    if (!gp && aim.valid) gp = aim.point;
     if (!gp) gp = new T.Vector3(2, 0, -8);
+    aim.valid = true; aim.shown = true; aim.point.set(gp.x, .055, gp.z);
+    ring.position.copy(aim.point);
+    GUN.aimAt(aim.point);
     const gy = Math.max(-13.1, Math.min(5.8, gp.z));
     const ground = new T.Vector3(gp.x, .06, gy);
     const target = findTargetAt(cssX, cssY);
     const to = target ? new T.Vector3(...targetCenter(target)) : ground;
+    const from = GUN.fire();
     const m = new T.Mesh(pelletGeo, pelletMat);
-    m.position.copy(LAUNCH); m.castShadow = true; m.receiveShadow = false;
+    m.position.copy(from); m.castShadow = true; m.receiveShadow = false;
     scene.add(m);
-    pellets.push({ m, from: LAUNCH.clone(), to, t: 0, dur: .27, spin: (fxRnd() - .5) * 20, ground, ndc, target });
-    retTarget = 1; ring.position.set(gp.x, .045, gp.z); ring.rotation.z = Math.abs(Math.sin(gp.x * 12.9898 + gp.z * 78.233) * 43758.5453) % 1 * TAU;
+    pellets.push({ m, from, to, t: 0, dur: .27, spin: (fxRnd() - .5) * 20, ground, ndc, target });
+    H.sound?.flap({ size: .15, up: true, key: 'pop-gun' });
+    retTarget = done ? 0 : 1;
     updateHud();
     return true;
   }
@@ -1156,70 +1432,96 @@ const GAME = (() => {
       m.mat.opacity = .9 * Math.max(0, Math.min(1, (m.life - m.t) / .45));
       if (m.t >= m.life) { scene.remove(m.m); m.mat.dispose(); marks.splice(i, 1); }
     }
-    // reticle: fade in under the pointer, and out when it leaves the canvas; re-project each step because the
-    // harness's calm camera drift would otherwise slide the printed ring off the pointer
+    // reticle: refind the ground point of the last pointer NDC each step (the harness camera drifts a little), then
+    // fade in under the pointer and out when there is no valid point. The last valid point stays in `aim` for firing.
     if (pointer.inside && !done) {
-      const ndc = cssToNdc(pointer.x, pointer.y), gp = H.groundAt(ndc.x, ndc.y);
-      if (gp) ring.position.set(gp.x, .045, gp.z);
+      const gp = H.groundAt(aim.ndc.x, aim.ndc.y);
+      if (gp) {
+        aim.valid = true; aim.shown = true; aim.point.set(gp.x, .055, gp.z);
+        ring.position.copy(aim.point);
+        GUN.aimAt(aim.point);
+      } else if (aim.valid) {
+        aim.shown = false; retTarget = 0; ring.visible = false; ring.material.opacity = 0;
+      }
     }
     const want = retTarget;
-    ring.material.opacity += (want * .92 - ring.material.opacity) * Math.min(1, dt * 11);
+    ring.material.opacity += (want * .95 - ring.material.opacity) * Math.min(1, dt * 12);
     ring.visible = ring.material.opacity > .02;
     updateHud();
   });
   H.onRestart(resetRound);
 
-  // 8k. pointer input: the reticle follows the pointer's ground point; a click fires; the harness's fold-on-click is
-  // stopped at the canvas so the crosshair stays under the pointer and a shot never folds the world
-  const pointer = { x: 0, y: 0, inside: false };
-  function showReticle(cssX, cssY) {
+  // 8k. pointer input. ONE conversion for everything: client px -> the canvas rect -> NDC -> H.groundAt. The canvas is
+  // letterboxed (its CSS position/size differ from the window's), so the rect — never innerWidth/innerHeight — is the
+  // source of truth. Anywhere over the canvas aims and shoots; UI (the ? tab, the end card, buttons) is excluded by
+  // element, and the help card/debug box are pointer-events:none so they never swallow the pointer.
+  const overCanvas = (e) => {
+    const t = e.target;
+    if (t && t.closest && t.closest('#help-tab, #endcard, button, #loading')) return false;
+    const r = rectOf();
+    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  };
+  function hideReticle() {
+    aim.shown = false; retTarget = 0; ring.visible = false; ring.material.opacity = 0;
+  }
+  function updateAim(cssX, cssY) {
     const ndc = cssToNdc(cssX, cssY), gp = H.groundAt(ndc.x, ndc.y);
-    if (!gp) { retTarget = 0; return; }
+    aim.ndc = ndc;
+    if (!gp) { hideReticle(); return null; }   // past the page edge / over the letterbox: no stale ring
+    aim.valid = true; aim.shown = true; aim.point.set(gp.x, .055, gp.z);
     if (Math.hypot(gp.x - lastX, gp.z - lastZ) > .35) {
       lastX = gp.x; lastZ = gp.z;
       ring.rotation.z = (Math.abs(Math.sin(gp.x * 12.9898 + gp.z * 78.233) * 43758.5453) % 1) * TAU;
     }
-    ring.position.set(gp.x, .045, gp.z); retTarget = done ? 0 : 1;
+    ring.position.copy(aim.point);
+    GUN.aimAt(aim.point);
+    retTarget = done ? 0 : 1;
+    return aim.point;
   }
   addEventListener('pointermove', (e) => {
-    if (e.target !== cv()) { retTarget = 0; return; }
+    if (!overCanvas(e)) { pointer.inside = false; hideReticle(); return; }
     pointer.x = e.clientX; pointer.y = e.clientY; pointer.inside = true;
-    showReticle(e.clientX, e.clientY);
+    updateAim(e.clientX, e.clientY);
   }, { passive: true });
-  cv().addEventListener('pointerleave', () => { pointer.inside = false; retTarget = 0; });
-  addEventListener('blur', () => { retTarget = 0; });
   addEventListener('pointerdown', (e) => {
-    if (e.target !== cv()) return;
     if (e.button !== 0 && e.pointerType === 'mouse') return;
+    if (!overCanvas(e)) return;
     e.stopImmediatePropagation();   // the harness may not start a drag or fold the page under a shot
     e.preventDefault();
     H.sound?.unlock();
     pointer.x = e.clientX; pointer.y = e.clientY; pointer.inside = true;
-    showReticle(e.clientX, e.clientY);
+    aim.ndc = cssToNdc(e.clientX, e.clientY);
+    updateAim(e.clientX, e.clientY);
     fireAtPx(e.clientX, e.clientY);
   }, { capture: true });
+  addEventListener('pointercancel', () => { pointer.inside = false; hideReticle(); }, { passive: true });
+  addEventListener('blur', () => { pointer.inside = false; hideReticle(); });
 
   resetRound();
   return {
-    ver: 1,
+    ver: 2,
     get seed() { return seed; },
     state: () => ({ score, best, streak, timeLeft: +timeLeft().toFixed(2), done, running: started && !done }),
     targets: () => {
       camera.updateMatrixWorld();
       return pool.map((t) => {
         const s = targetScreen(t);
-        return { id: t.id, kind: t.kind, x: +t.x.toFixed(2), z: +t.z.toFixed(2), standing: t.standing, starter: t.starter,
-          screen: [Math.round(s.screen[0]), Math.round(s.screen[1])], hit: t.hit };
+        return { id: t.id, kind: t.kind, points: t.k.points, x: +t.x.toFixed(2), z: +t.z.toFixed(2), standing: t.standing,
+          starter: t.starter, scale: +t.scale.toFixed(2), screen: [Math.round(s.screen[0]), Math.round(s.screen[1])], hit: t.hit };
       });
     },
     probe: () => {
       const r = rectOf();
+      const ret = pointer.inside && aim.shown && !done
+        ? { x: +aim.point.x.toFixed(3), y: +aim.point.y.toFixed(3), z: +aim.point.z.toFixed(3) } : null;
       return { canvas: [r.left, r.top, r.width, r.height], standing: pool.filter((t) => t.standing).length,
+        reticle: ret, gun: { ...GUN.state(), muzzleScreen: GUN.muzzleScreen() },
+        pointer: { x: Math.round(pointer.x), y: Math.round(pointer.y), inside: pointer.inside, ndc: { x: +aim.ndc.x.toFixed(3), y: +aim.ndc.y.toFixed(3) } },
         targets: pool.filter((t) => t.standing).map((t) => { const s = targetScreen(t); return { id: t.id, kind: t.kind, screen: s.screen.map(Math.round), radius: +s.radius.toFixed(1) }; }) };
     },
     shootAt: (cssX, cssY) => {
-      pointer.x = cssX; pointer.y = cssY;
-      showReticle(cssX, cssY);
+      pointer.x = cssX; pointer.y = cssY; pointer.inside = true;
+      updateAim(cssX, cssY);
       return fireAtPx(cssX, cssY);
     },
     newRound, toast,
