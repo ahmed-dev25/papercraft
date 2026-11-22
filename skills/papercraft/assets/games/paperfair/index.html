@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>paperfair — a pop-up carnival shooting gallery</title>
 <meta name="description" content="A dusk paper carnival: shoot the tin cans, bottles, pie tins, balloons and prize stars with a paper pop-gun before the ticket runs out. Everything folds up from the printed page.">
 <link rel="icon" href="data:,">
@@ -164,21 +164,49 @@
     #ticket .stub { width: 74px; font-size: 7px; }
     #tears .seg { width: 28px; }
   }
+
+  /* phones (html.pf-mobile is set by game.js from its MOBILE predicate: coarse pointer or a small viewport). Everything
+     here is thumb-sized and clear of the home bar; on a desktop the class is absent and every rule below is dead, so
+     the HUD keeps its authored 22 px tokens, its 26x30 tabs and its copy. */
+  html.pf-mobile #ticket { top: env(safe-area-inset-top, 0px); height: 28px; max-width: 100vw; }
+  html.pf-mobile #ticket .stub { width: 64px; font-size: 7px; }
+  html.pf-mobile #tears .seg { width: clamp(18px, 5.6vw, 22px); }
+  html.pf-mobile #scorecard { left: 10px; top: calc(38px + env(safe-area-inset-top, 0px)); min-width: 118px; padding: 7px 11px 8px; }
+  html.pf-mobile #scorecard .label { font-size: 7.5px; }
+  html.pf-mobile #score { font-size: 23px; }
+  html.pf-mobile #scorecard .best { font-size: 9px; }
+  html.pf-mobile #streak { min-height: 10px; padding-top: 3px; }
+  html.pf-mobile #toast { top: calc(96px + env(safe-area-inset-top, 0px)); max-width: 88vw; }
+  html.pf-mobile #help { top: calc(96px + env(safe-area-inset-top, 0px)); max-width: 90vw; }
+  html.pf-mobile #help .sheet { padding: 10px 16px 9px; font-size: 13.5px; }
+  /* the two paper tabs: at least 40x44 CSS px of touch, never a double-tap zoom of the layout */
+  html.pf-mobile #help-tab { top: calc(36px + env(safe-area-inset-top, 0px)); right: 10px; width: 44px; height: 46px; font-size: 18px; touch-action: manipulation; }
+  html.pf-mobile #endcard button { min-height: 44px; touch-action: manipulation; }
+  html.pf-mobile #endcard .sheet { max-width: 90vw; }
+
+  /* the corner muzzle: a small torn paper flash, shown only when the toy gun itself is hidden (a narrow phone) — the
+     shot still leaves the same place and still reads as paper. */
+  #muzzle {
+    position: fixed; right: calc(16px + env(safe-area-inset-right, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+    width: 52px; height: 38px; z-index: 26; pointer-events: none; opacity: 0;
+    background:
+      radial-gradient(circle at 42% 48%, rgba(255,248,228,.98) 0 18%, rgba(241,225,189,.92) 30%, rgba(217,159,69,.55) 58%, rgba(217,159,69,0) 74%);
+    clip-path: polygon(50% 0, 63% 24%, 92% 10%, 78% 36%, 100% 50%, 75% 60%, 90% 88%, 62% 72%, 50% 100%, 38% 73%, 9% 88%, 24% 61%, 0 50%, 24% 37%, 8% 11%, 38% 25%);
+    filter: drop-shadow(0 2px 3px rgba(51, 33, 29, .4));
+  }
+  #muzzle.flash { animation: pf-muzzle .26s ease-out; }
+  @keyframes pf-muzzle {
+    0% { opacity: 0; transform: scale(.45) rotate(-10deg); }
+    32% { opacity: .96; transform: scale(1) rotate(3deg); }
+    100% { opacity: 0; transform: scale(1.4) rotate(-3deg); }
+  }
+  @media (prefers-reduced-motion: reduce) { #muzzle.flash { animation: none; opacity: .9; } }
 </style>
 <!-- three r187 vendored into assets/vendor/ (needs its sibling three.core.js); "papercraft/" points at the assets root -->
 <script type="importmap">{ "imports": { "three": "../../vendor/three.module.js", "papercraft/": "../../" } }</script>
-<script>
-  // the fair is authored for a 16:9 frame; a narrower window would crop the booth's edges. Render the full frame scaled
-  // to fit instead (letterboxed), keeping every seed param intact. Once is enough: the guard exits.
-  if (!/[?&]size=/.test(location.search) && innerWidth / innerHeight < 1.6) {
-    var q = location.search ? location.search + '&' : '?';
-    location.replace(location.pathname + q + 'size=1778x1000');
-  }
-</script>
 </head>
 <body>
-<div id="loading"><div class="sheet">the fair is being set up…</div></div>
-<script>
+<div id="loading"><div class="sheet">the fair is being set up…</div></div><script>
   // paperfair: the page reports its own health in plain words, BEFORE the game module runs, so a first-line crash
   // replaces the note with the actual reason instead of a silent blank screen.
   (function () {
@@ -236,6 +264,7 @@
   <div id="streak"></div>
 </div>
 <div id="toast"></div>
+<div id="muzzle" aria-hidden="true"></div>
 <div id="help" role="note" aria-label="how to play">
   <div class="sheet">
     <h2>how to play</h2>

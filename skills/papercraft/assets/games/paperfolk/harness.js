@@ -515,16 +515,29 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
       resize();
     };
     // camera: looking down into the world (40-55 deg), long lens, gentle drift; drag to look around
+    // paperfolk: on a phone the game owns touch (one finger pans the target, two pinch the lens) and sets H.touchPan
+    // while a gesture is live; these three guards keep the harness's own drag and fold out of its way. A mouse never
+    // sets H.touchPan, so the desktop drag behaves exactly as before.
     let drag = null;
-    renderer.domElement.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; sound.unlock(); });
+    renderer.domElement.addEventListener('pointerdown', (e) => { if (H.touchPan) return; drag = { x: e.clientX, y: e.clientY, moved: 0 }; sound.unlock(); });
     addEventListener('keydown', () => sound.unlock());     // a player on the keys alone hears it too
     addEventListener('pointermove', (e) => {
-      if (!drag) return;
+      if (H.touchPan || !drag) return;
       drag.moved += Math.abs(e.movementX) + Math.abs(e.movementY);
       view.tyaw = THREE.MathUtils.clamp(view.tyaw - e.movementX * 0.15, -12, 12);      // the world is filled where the camera
       view.tpitch = THREE.MathUtils.clamp(view.tpitch + e.movementY * 0.12, 40, 55);  // looks; never so low the far edge shows
     });
-    addEventListener('pointerup', () => { if (drag && drag.moved < 6) setOpen(!up); drag = null; });
+    addEventListener('pointerup', () => { if (H.touchPan) return; if (drag && drag.moved < 6) setOpen(!up); drag = null; });
+    // paperfolk: the game's mobile camera — a touch pan moves the view target on the page and a pinch sets the
+    // distance; the lens, the DOF focus (render() reads view.dist) and the soft shadow fit follow the harness's own
+    // placements, so nothing goes stale. Called only from game.js's gesture handlers (never on desktop).
+    H.setView = ({ dist, x, z } = {}) => {
+      if (dist !== undefined) view.dist = THREE.MathUtils.clamp(dist, 24, 90);
+      if (x !== undefined) target.x = x;
+      if (z !== undefined) target.z = z;
+      placeCamera(view.yaw, view.pitch); camera.updateMatrixWorld();
+      if (shadowAt && shadowAt.distanceTo(target) > 2) { shadowAt.copy(target); fitShadow(lights, shadowAt); }
+    };
 
     // walking (?walk): WASD / arrows move the hero over the walk field; the camera follows and refits the shadow map.
     // Movement as the source game moves its player: velocity approaches the wanted one at a constant rate (a snappy

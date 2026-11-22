@@ -47,6 +47,22 @@ const TIERS = {
 const Q = TIERS[TIER];
 const PF_LIFE = [];   // [kind, Q key] pairs the live one-shot step-down can thin without a rebuild
 
+// ---- 0m. phones: ONE detection for the page — a coarse pointer (a finger) or a viewport with a short side under 620
+// CSS px — plus the portrait flag taken once at load. Portrait is the real experience: the harness's own vertical frame
+// (no letterbox), a slightly closer portrait camera, a portrait rail whose spot pool is screen-checked against the
+// canvas safe band, targets sized for a fingertip, and a thumb-sized HUD. Every branch is gated on MOBILE, so a desktop
+// mouse in a wide window keeps the authored camera, gun, target scales, HUD and click-to-shoot exactly.
+const MOBILE = matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, innerHeight) < 620;
+const PORTRAIT = innerHeight >= innerWidth;
+// 56 units: 15% under the authored 66, so the rail holds a comfortable tap size in a 390 px portrait frame
+const MOBILE_DIST = 56;
+if (MOBILE) {
+  document.documentElement.classList.add('pf-mobile');
+  // phones never zoom the page chrome under a double tap or a pinch; desktop zoom is untouched by this branch
+  const vp = document.querySelector('meta[name="viewport"]');
+  if (vp) vp.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');
+}
+
 // ---- 1. the world's only palette (see the spec above: do not start a similar prompt from these hexes) ------------
 const C = {
   ground: '#b7a88b', saw: '#d8c49c', groundWarm: '#cbb68f', lane: '#e7d5ae', laneEdge: '#b49a6e',
@@ -143,7 +159,7 @@ const DUSK = {
 };
 const H = createHarness({
   ground: C.ground, bounds: { x0: -70, x1: 70, z0: -60, z1: 30 },
-  view: { pitch: 47, dist: 66, target: [2, 1.5, -6] }, focus: [2, 2.1, -10.4], subject: [2, -8],
+  view: { pitch: 47, dist: MOBILE && PORTRAIT ? MOBILE_DIST : 66, target: [2, 1.5, -6] }, focus: [2, 2.1, -10.4], subject: [2, -8],
   play: false, mood: 'dusk', moods: { ...MOODS, dusk: DUSK },
   dpr: Q.dpr, shadowMap: Q.shadow, msaa: Q.msaa, lens: { taps: Q.taps, greenDesat: .12 },
   light: { distance: 120, shadowExtent: 54 },
@@ -876,7 +892,8 @@ const GUN = (() => {
 
   const GRIP = { x: .90, y: -.70, depth: 13, at: 3.0 };   // NDC grip point, camera depth, half height at 16:9
   const yaw = { v: 0 }, pitchV = { v: 0 };
-  let aimP = null, hasAim = false, recoilT = 99;
+  let aimP = null, hasAim = false, recoilT = 99, shownScale = 1;
+  const cvEl = document.querySelector('canvas');   // the displayed frame's own rect: a letterboxed phone still reads right
   const _r = new T.Vector3(), _u = new T.Vector3(), _f = new T.Vector3(), _d = new T.Vector3(), _q = new T.Quaternion();
   const _mw = new T.Vector3();
 
@@ -885,12 +902,18 @@ const GUN = (() => {
     const q = camera.quaternion;
     _r.set(1, 0, 0).applyQuaternion(q); _u.set(0, 1, 0).applyQuaternion(q); _f.set(0, 0, -1).applyQuaternion(q);
     const halfH = GRIP.depth * Math.tan(camera.fov * PI / 360), halfW = halfH * camera.aspect;
+    // paperfair portrait: the toy is held at .68 and tucked into the very bottom-right corner so the rail is never under
+    // it; landscape phone .9; desktop exactly the authored 1 and GRIP position. Under 400 CSS px of displayed width the
+    // whole rig is hidden and the DOM muzzle flash in the corner fires instead (the shot path is identical).
+    const portrait = camera.aspect < 1, phone = MOBILE;
+    shownScale = phone ? (portrait ? .68 : .9) : 1;
     rig.position.copy(camera.position)
-      .addScaledVector(_r, GRIP.x * halfW)
-      .addScaledVector(_u, GRIP.y * halfH)
+      .addScaledVector(_r, (phone && portrait ? .97 : GRIP.x) * halfW)
+      .addScaledVector(_u, (phone && portrait ? -.88 : GRIP.y) * halfH)
       .addScaledVector(_f, GRIP.depth);
     rig.quaternion.copy(q);
-    rig.scale.setScalar(halfH / GRIP.at);   // same screen size in any lens
+    rig.scale.setScalar(halfH / GRIP.at * shownScale);   // same screen size in any lens, scaled for a thumb
+    rig.visible = !(phone && cvEl.getBoundingClientRect().width < 400);
 
     // aim: the reticle's ground point, in the rig's own frame; small clamps keep it a held toy, never a windmill
     let wy = 0, wp = 0;
@@ -946,8 +969,10 @@ const GUN = (() => {
     group: rig,
     aimAt: (p) => { if (p) { aimP = (aimP || new T.Vector3()).copy(p); hasAim = true; } },
     fire,
+    hidden: () => !rig.visible,
     muzzleWorld: () => { aim.updateMatrixWorld(true); return muzzle.getWorldPosition(_mw).clone(); },
-    state: () => ({ yaw: +yaw.v.toFixed(3), pitch: +pitchV.v.toFixed(3), recoil: +Math.max(0, Math.min(1, recoilT < .12 ? recoilT / .12 : 1 - (recoilT - .12) / .25)).toFixed(2) }),
+    state: () => ({ yaw: +yaw.v.toFixed(3), pitch: +pitchV.v.toFixed(3), scale: +shownScale.toFixed(2), hidden: !rig.visible,
+      recoil: +Math.max(0, Math.min(1, recoilT < .12 ? recoilT / .12 : 1 - (recoilT - .12) / .25)).toFixed(2) }),
     muzzleScreen: () => { aim.updateMatrixWorld(true); const p = muzzle.getWorldPosition(_mw).clone().project(camera); const r = document.querySelector('canvas').getBoundingClientRect(); return [Math.round(r.left + (p.x + 1) / 2 * r.width), Math.round(r.top + (1 - p.y) / 2 * r.height)]; },
   };
 })();
@@ -1068,9 +1093,46 @@ const GAME = (() => {
   let started = false, done = false, waveTimer = 1.5, starterDone = false;
   let best = 0; try { best = +(localStorage.getItem('pf-best') || 0) || 0; } catch (e) { best = 0; }
 
-  // 8c. the spots: eleven free places along the rail; never closer than 1.6 units
-  const spots = Array.from({ length: 11 }, (_, i) => ({ x: 2 + (i - 5) * 3.0, z: RAIL_Z, t: null }));
-  const centerSpot = spots[5];
+  // 8c. the spots: eleven free places along the rail; never closer than 1.6 units. A portrait frame sees only a narrow
+  // band of that rail, so on a phone the pool is screen-checked in NDC against the harness's own frame (10% margin for
+  // the spot, 2% for the card's top and sides) and the spacing tightens until 6-8 spots stand comfortably clear of the
+  // edges. The centre spot is always kept: the starter can rises there. Desktop skips every check and keeps its
+  // authored 3.0-unit rail and scale 1.
+  const railBase = RAIL_TOP + .04, _rp = new T.Vector3();
+  camera.updateMatrixWorld();
+  const ndcAtRail = (x, y) => _rp.set(x, y, RAIL_Z).project(camera);
+  const tallestTop = Math.max(...Object.values(KINDS).map((k) => k.h)) * 1.08;
+  // Portrait: the harness's 1.33 lens and the 56-unit camera already read the rail; a 1.2 bump makes the ordinary
+  // targets 40-50 CSS px tall on a 390 px frame (the wide pie tin reads 55 px across at 30 high) with a tap circle of
+  // ~57 px or more (targetScreen.radius), while the widest card stays ~2.5 units on the 2.2-unit portrait rail so
+  // neighbouring cards do not cover each other. A landscape phone keeps the authored 1.15 bump; desktop exactly 1.
+  const TSCALE = MOBILE ? (PORTRAIT ? 1.2 : 1.15) : 1;
+  const inBand = (x, y, m) => {   // NDC: x -1..1 across, y -1 bottom .. 1 top; a margin m of the frame's own size
+    if (!MOBILE) return true;
+    const p = ndcAtRail(x, y);
+    return p.x > -1 + 2 * m && p.x < 1 - 2 * m && p.y > -1 + 2 * m && p.y < 1 - 2 * m;
+  };
+  const makeSpots = (gap) => Array.from({ length: 11 }, (_, i) => ({ x: 2 + (i - 5) * gap, z: RAIL_Z, t: null }));
+  // the spot itself sits in the 10% safe centre band; the tallest raised target and the widest target's sides must not
+  // clip the frame (2% margin). On a 390 px portrait frame this seats seven spots with every card fully printed.
+  const spotFits = (s) => inBand(s.x, railBase, .1)
+    && inBand(s.x, railBase + tallestTop * TSCALE, .02)
+    && inBand(s.x - 1.35 * TSCALE, railBase + 1.5 * TSCALE, .02)
+    && inBand(s.x + 1.35 * TSCALE, railBase + 1.5 * TSCALE, .02);
+  const fitSpots = () => {
+    if (!MOBILE) return { list: makeSpots(3.0), gap: 3.0 };
+    let fallback = null;
+    for (const gap of [3.0, 2.6, 2.2, 1.9, 1.7]) {
+      const list = makeSpots(gap).filter(spotFits);
+      if (list.length >= 6 && list.length <= 8) return { list, gap };   // the widest rail that still seats 6-8
+      if (list.length >= 6 && !fallback) fallback = { list, gap };
+    }
+    return fallback || { list: makeSpots(1.7).filter(spotFits), gap: 1.7 };
+  };
+  const fitted = fitSpots();
+  const spots = fitted.list.length ? fitted.list : makeSpots(1.7);
+  const railGap = fitted.gap;
+  const centerSpot = spots.reduce((a, s) => (Math.abs(s.x - 2) < Math.abs(a.x - 2) ? s : a), spots[0]);
   const pool = [];
   let nextId = 0;
   for (const kind of ['can', 'can', 'can', 'can', 'bottle', 'bottle', 'bottle', 'bottle', 'plate', 'plate', 'plate', 'balloon', 'balloon', 'star', 'star']) {
@@ -1120,7 +1182,7 @@ const GAME = (() => {
     m.frustumCulled = false;
     scene.add(m); return m;
   })();
-  let retTarget = 0, lastX = 0, lastZ = 0;
+  let retTarget = 0, lastX = 0, lastZ = 0, retFlash = -1;
   // the aim: the last valid ground point under the pointer (kept for firing when the pointer leaves the page)
   const aim = { valid: false, shown: false, point: new T.Vector3(2, .055, -8), ndc: { x: 0, y: 0 } };
   const pointer = { x: 0, y: 0, inside: false };
@@ -1230,11 +1292,11 @@ const GAME = (() => {
   // 8g. targets: rise, fold by themselves after 3.5 s, fold at once when hit
   function spawn(t, spot, scale, starter = false) {
     if (!spot || spot.t) return false;
-    spot.t = t; t.spot = spot; t.x = spot.x; t.z = spot.z; t.scale = scale; t.standing = true;
+    spot.t = t; t.spot = spot; t.x = spot.x; t.z = spot.z; t.scale = scale * TSCALE; t.standing = true;
     t.starter = !!starter; t.hit = false; t.roseAt = gameTime; t.foldAt = 0; t.freeAt = Infinity;
-    t.group.position.set(t.x, RAIL_TOP + .04, t.z);
+    t.group.position.set(t.x, railBase, t.z);
     t.group.rotation.y = ((t.id * .73) % 1 - .5) * .14;
-    t.mesh.scale.setScalar(scale);
+    t.mesh.scale.setScalar(t.scale);
     t.group.visible = true;
     t.h.reset(0); t.h.set(1, .025);
     return true;
@@ -1302,8 +1364,14 @@ const GAME = (() => {
   }
 
   // 8h. firing: one path for a real pointerdown and for the test hook. The pellet leaves the POP-GUN MUZZLE (not the
-  // bottom-centre of the frame); the reticle lands on the shot's ground point; the gun kicks and puffs paper.
-  function fireAtPx(cssX, cssY) {
+  // bottom-centre of the frame); the reticle lands on the shot's ground point; the gun kicks and puffs paper. On a
+  // touch the ring is held bright for .3 s (there is no hover to leave it under the finger); when the toy is hidden on
+  // a narrow phone, a small paper flash in the corner stands in for its puff.
+  function muzzleFlash() {
+    const mz = $('muzzle'); if (!mz) return;
+    mz.classList.remove('flash'); void mz.offsetWidth; mz.classList.add('flash');
+  }
+  function fireAtPx(cssX, cssY, fromTouch = false) {
     if (done) return false;
     if (gameTime - lastShot < .1) return false;
     lastShot = gameTime;
@@ -1314,6 +1382,7 @@ const GAME = (() => {
     if (!gp) gp = new T.Vector3(2, 0, -8);
     aim.valid = true; aim.shown = true; aim.point.set(gp.x, .055, gp.z);
     ring.position.copy(aim.point);
+    if (fromTouch) { retFlash = gameTime + .3; retTarget = 1; ring.material.opacity = .95; ring.visible = true; }
     GUN.aimAt(aim.point);
     const gy = Math.max(-13.1, Math.min(5.8, gp.z));
     const ground = new T.Vector3(gp.x, .06, gy);
@@ -1325,6 +1394,7 @@ const GAME = (() => {
     scene.add(m);
     pellets.push({ m, from, to, t: 0, dur: .27, spin: (fxRnd() - .5) * 20, ground, ndc, target });
     H.sound?.flap({ size: .15, up: true, key: 'pop-gun' });
+    if (GUN.hidden()) muzzleFlash();
     retTarget = done ? 0 : 1;
     updateHud();
     return true;
@@ -1374,7 +1444,7 @@ const GAME = (() => {
     for (const p of pellets) scene.remove(p.m); pellets.length = 0;
     for (const c of confetti) { scene.remove(c.m); c.mat.dispose(); } confetti.length = 0;
     for (const m of marks) { scene.remove(m.m); m.mat.dispose(); } marks.length = 0;
-    retTarget = 0; ring.visible = false;
+    retTarget = 0; retFlash = -1; ring.visible = false;
     const card = $('endcard'); if (card) card.classList.add('hidden');
     updateHud();
   }
@@ -1444,7 +1514,8 @@ const GAME = (() => {
         aim.shown = false; retTarget = 0; ring.visible = false; ring.material.opacity = 0;
       }
     }
-    const want = retTarget;
+    if (retFlash > 0 && gameTime >= retFlash) { retFlash = -1; retTarget = 0; pointer.inside = false; }
+    const want = retFlash > 0 ? 1 : retTarget;
     ring.material.opacity += (want * .95 - ring.material.opacity) * Math.min(1, dt * 12);
     ring.visible = ring.material.opacity > .02;
     updateHud();
@@ -1492,7 +1563,7 @@ const GAME = (() => {
     pointer.x = e.clientX; pointer.y = e.clientY; pointer.inside = true;
     aim.ndc = cssToNdc(e.clientX, e.clientY);
     updateAim(e.clientX, e.clientY);
-    fireAtPx(e.clientX, e.clientY);
+    fireAtPx(e.clientX, e.clientY, e.pointerType !== 'mouse');   // a touch gets the bright reticle flash at its point
   }, { capture: true });
   addEventListener('pointercancel', () => { pointer.inside = false; hideReticle(); }, { passive: true });
   addEventListener('blur', () => { pointer.inside = false; hideReticle(); });
@@ -1524,10 +1595,30 @@ const GAME = (() => {
       updateAim(cssX, cssY);
       return fireAtPx(cssX, cssY);
     },
+    // the mobile readout for the main session's stepped tests (additive; also window.__pfMobile): the portrait rail's
+    // chosen spacing and safe spot pool, the target scale and the projected height of every standing target in CSS px,
+    // and the toy gun's live size/visibility. Desktop reports mobile:false with the authored values.
+    mobile: () => {
+      camera.updateMatrixWorld();
+      const up = pool.filter((t) => t.standing);
+      const px = (t) => Math.round(Math.abs(project(t.x, railBase + t.k.h * t.scale, t.z)[1] - project(t.x, railBase, t.z)[1]));
+      const tap = (t) => Math.round(targetScreen(t).radius * 2);
+      return { mobile: MOBILE, portrait: PORTRAIT, dist: +H.view.dist.toFixed(2), railGap, spots: spots.map((s) => +s.x.toFixed(2)),
+        targetScale: +TSCALE.toFixed(2),
+        // minCardPx: the shortest standing card's printed height; minTapPx: the smallest tap circle (the hit test is
+        // targetScreen.radius, so a card reads as a comfortable thumb target even when it is a wide, short pie tin).
+        minCardPx: up.length ? Math.min(...up.map(px)) : null,
+        minTapPx: up.length ? Math.min(...up.map(tap)) : null,
+        minTargetPx: up.length ? Math.min(...up.map(tap)) : null, standing: up.length,
+        targets: up.map((t) => ({ kind: t.kind, px: px(t), tap: tap(t), screen: targetScreen(t).screen.map(Math.round) })),
+        gun: GUN.state(), gunHidden: GUN.hidden(), flash: retFlash > 0, reticleOpacity: +ring.material.opacity.toFixed(2),
+        muzzle: !!document.getElementById('muzzle') };
+    },
     newRound, toast,
   };
 })();
 window.__paperfair = GAME;
+window.__pfMobile = GAME.mobile;   // additive portrait-rail / target-px / gun readout: see GAME.mobile()
 window.__pfh = H;
 
 const __loading = document.getElementById('loading');   // the fair is printed (one synchronous build): lift the note

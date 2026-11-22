@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>paperfolk — a pop-up hidden-object game</title>
 <meta name="description" content="Eight little paper folk hide in a pop-up world. Find them all — and fold the page flat to meet the shy ones.">
 <link rel="icon" href="data:,">
@@ -170,17 +170,25 @@
   #hint-tab:active { transform: translateY(1px); }
   #hint-tab:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   body.has-debug #help { top: 176px; }
+
+  /* phones (html.pf-mobile is set by game.js from its MOBILE predicate: coarse pointer or a small viewport). The HUD
+     grows a fingertip's worth, the tabs clear 40x44, and the sheet's bottom edge clears the home bar. On a desktop the
+     class is absent, so none of these rules apply: the authored 22x28 tokens, 13 px count and 26x30 / 38x22 tabs stay. */
+  html.pf-mobile #hud { left: 10px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); gap: 8px; padding: 7px 10px; }
+  html.pf-mobile #folk-tokens { gap: 5px; }
+  html.pf-mobile .token { width: clamp(24px, 7.7vw, 30px); height: clamp(30px, 9.7vw, 38px); }
+  html.pf-mobile #count { font-size: 15px; padding-left: 3px; }
+  html.pf-mobile #hint { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); font-size: 13px; max-width: 88vw; }
+  html.pf-mobile #help { top: calc(84px + env(safe-area-inset-top, 0px)); max-width: 90vw; }
+  html.pf-mobile #help .sheet { padding: 12px 16px 11px; font-size: 14px; }
+  html.pf-mobile #help-tab { top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; width: 44px; height: 46px; font-size: 18px; touch-action: manipulation; }
+  html.pf-mobile #hint-tab { top: calc(64px + env(safe-area-inset-top, 0px)); right: 12px; width: 46px; height: 44px; font-size: 11px; touch-action: manipulation; }
+  html.pf-mobile #toast { top: calc(14px + env(safe-area-inset-top, 0px)); max-width: 88vw; }
+  html.pf-mobile #endcard .sheet { max-width: 90vw; }
+  html.pf-mobile #endcard button { min-height: 44px; touch-action: manipulation; }
 </style>
 <!-- three r187 vendored into assets/vendor/ (needs its sibling three.core.js); "papercraft/" points at the assets root -->
 <script type="importmap">{ "imports": { "three": "../../vendor/three.module.js", "papercraft/": "../../" } }</script>
-<script>
-  // the world is authored for a 16:9 frame; a narrower window would crop its edges and cut folk off. Render the full
-  // frame scaled to fit instead (letterboxed), keeping every seed param intact. Once is enough: the guard exits.
-  if (!/[?&]size=/.test(location.search) && innerWidth / innerHeight < 1.6) {
-    var q = location.search ? location.search + '&' : '?';
-    location.replace(location.pathname + q + 'size=1778x1000');
-  }
-</script>
 </head>
 <body>
 <div id="loading"><div class="sheet">the page is being printed…</div></div>
