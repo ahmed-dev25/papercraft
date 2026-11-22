@@ -71,7 +71,7 @@
 
   #endcard {
     position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-    background: rgba(90, 58, 40, .25); transition: opacity .5s ease;
+    background: rgba(90, 58, 40, .25); transition: opacity .5s ease; z-index: 60;
   }
   #endcard.hidden { opacity: 0; pointer-events: none; }
   #endcard .sheet {
@@ -95,6 +95,46 @@
     clip-path: polygon(0 8%, 3% 0, 97% 2%, 100% 10%, 99% 93%, 96% 100%, 4% 98%, 1% 90%);
   }
   #endcard button:hover { transform: translateY(-1px); }
+
+  /* the paper "how to play" card: cream, ink, a torn edge and a small neatline (the HUD's language); the ? tab in the
+     top-right corner stays, and brings it back at any time */
+  #help {
+    position: fixed; left: 50%; top: 64px; transform: translateX(-50%);
+    z-index: 9; width: max-content; max-width: min(460px, calc(100vw - 96px));
+    pointer-events: none; text-align: center;
+    transition: opacity .6s ease, transform .6s ease;
+  }
+  #help.hidden { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+  #help .sheet {
+    position: relative; display: inline-block; padding: 13px 26px 12px;
+    background: var(--core); color: var(--ink); border: 1px solid rgba(90, 58, 40, .42);
+    box-shadow: 0 2px 4px var(--shadow), 0 14px 30px -8px var(--shadow);
+    font: 14px/1.5 Georgia, 'Times New Roman', serif;
+    clip-path: polygon(0 9%, 2% 0, 98% 2%, 100% 11%, 99% 90%, 97% 100%, 3% 98%, 1% 88%);
+  }
+  #help .sheet::before {
+    content: ""; position: absolute; inset: 6px; pointer-events: none;
+    border: 1px solid rgba(90, 58, 40, .3);
+  }
+  #help h2 { margin: 0 0 7px; font-weight: normal; font-size: 13px; letter-spacing: .14em; }
+  #help ul { margin: 0; padding: 0; list-style: none; }
+  #help li { position: relative; padding-left: 16px; margin: 2px 0; }
+  #help li::before {
+    content: ""; position: absolute; left: 2px; top: .52em; width: 5px; height: 5px; border-radius: 50%;
+    background: var(--ink); opacity: .7; box-shadow: 0 0 0 2px rgba(90, 58, 40, .14);
+  }
+  #help-tab {
+    position: fixed; top: 16px; right: 16px; width: 26px; height: 30px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9; pointer-events: auto; cursor: pointer; appearance: none; -webkit-appearance: none;
+    background: var(--core); color: var(--ink); border: 1px solid rgba(90, 58, 40, .55);
+    font: 15px/1 Georgia, serif; box-shadow: 0 2px 4px var(--shadow);
+    clip-path: polygon(0 8%, 5% 0, 95% 3%, 100% 12%, 99% 90%, 94% 100%, 6% 97%, 1% 88%);
+    user-select: none; -webkit-user-select: none;
+  }
+  #help-tab:hover { transform: translateY(-1px); }
+  #help-tab:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  body.has-debug #help { top: 176px; }
 </style>
 <!-- The 2D engine builds the world for whatever frame the page opens with (a phone's portrait included), so there is
      no letterbox redirect here, unlike the 3D game: "papercraft/" points at the assets root, where lib/ and examples/
@@ -104,9 +144,48 @@
 <body>
 <canvas id="c"></canvas>
 <div id="loading"><div class="sheet">the page is being printed…</div></div>
-<div id="hint">eight paperfolk hide in the world — click one to greet it<br>click the empty page to fold it flat and back again</div>
+<div id="hint">find the eight paperfolk — click one to greet it<br>click the empty page to fold it flat</div>
 <div id="hud"><div id="folk-tokens"></div><div id="count">0 of 8</div></div>
 <div id="toast"></div>
+<div id="help" role="note" aria-label="how to play">
+  <div class="sheet">
+    <h2>how to play</h2>
+    <ul>
+      <li>find 8 paperfolk hiding in the world</li>
+      <li>click one to greet it</li>
+      <li>click the empty page to fold it flat — the shy ones show their faces only then</li>
+    </ul>
+  </div>
+</div>
+<button id="help-tab" type="button" aria-label="show how to play" title="how to play">?</button>
+<script>
+  // paperfolk: the card fades on the first pointerdown (or after 12 s); the ? tab stays and brings it back.
+  // Its handlers run in the window's capture phase, so a tap on the tab never reaches the game's folk pick or fold.
+  (function () {
+    var card = document.getElementById('help'), tab = document.getElementById('help-tab');
+    if (!card || !tab) return;
+    if (document.getElementById('pf-debug')) document.body.classList.add('has-debug');
+    var timer = null;
+    function hide() { card.classList.add('hidden'); card.setAttribute('aria-hidden', 'true'); clearTimeout(timer); timer = null; }
+    function show() { card.classList.remove('hidden'); card.setAttribute('aria-hidden', 'false'); clearTimeout(timer); timer = setTimeout(hide, 12000); }
+    addEventListener('pointerdown', function (e) {
+      if (e.target === tab) { e.stopImmediatePropagation(); return; }   // the tab has its own click handler
+      hide();
+    }, true);
+    addEventListener('pointerup', function (e) { if (e.target === tab) e.stopImmediatePropagation(); }, true);
+    tab.addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      if (card.classList.contains('hidden')) show(); else hide();
+    });
+    // the 12 s clock starts when the printed page is ready, not while the loading sheet still covers it
+    if (document.getElementById('loading') && typeof MutationObserver !== 'undefined') {
+      var obs = new MutationObserver(function () {
+        if (!document.getElementById('loading')) { obs.disconnect(); show(); }
+      });
+      obs.observe(document.body, { childList: true, subtree: true });
+    } else show();
+  })();
+</script>
 <div id="endcard" class="hidden">
   <div class="sheet">
     <h1>all the folk are found</h1>

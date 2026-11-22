@@ -1,8 +1,9 @@
 // papercraft / games / paperfolk-2d / harness-2d.js
 // The FIXED harness of a pop-up world in Canvas 2D (no WebGL), copied from assets/templates/popup-2d/harness-2d.js.
 // The only changes are the few marked `// paperfolk:` lines: a turned-card flag (the game's shy folk), the pieces
-// list, a game-step hook (its timers must also run under the capture hook's step()), and the fold/sound handles the
-// 3D game's harness copy exposes. Everything else is byte-for-byte the template.
+// list, a game-step hook (its timers must also run under the capture hook's step()), an overlay draw hook (the game's
+// hint butterfly, drawn above the finished page), and the fold/sound handles the 3D game's harness copy exposes.
+// Everything else is byte-for-byte the template.
 //
 // The projection: world (x, y, z) -> screen (CX + S k x, CY + S k (z sin p - y cos p)), k = D / (D - z cos p), z toward
 // the viewer. A card point (u, v) on a card folded forward by phi lands at base - S k v cos(phi + p): a fold is a
@@ -280,12 +281,16 @@ export function createHarness2D({ view = {}, light = [-0.7, 1.1, 0.4], grade = '
     g.setTransform(1, 0, 0, 1, 0, 0);
     const vg = g.createRadialGradient(cv.width / 2, cv.height / 2, cv.height * 0.45, cv.width / 2, cv.height / 2, cv.height);
     vg.addColorStop(0, 'rgba(42,23,11,0)'); vg.addColorStop(1, 'rgba(42,23,11,0.08)'); g.fillStyle = vg; g.fillRect(0, 0, cv.width, cv.height);
+    for (const fn of overlayHooks) fn(g, t);   // paperfolk: the game's overlay (the hint butterfly) draws above the finished page
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
   }
 
   // ---- motion, input, loop, capture hook -------------------------------------------------------------------------------
   const stepHooks = [];   // paperfolk: the game layer ticks on the harness clock, so its timers also run under the capture hook's step()
+  const overlayHooks = [];   // paperfolk: the game's tiny non-interactive sprite (the stuck-hint butterfly) draws above the finished page
   const H = { P2, g, proj, view: VIEW, L, flags, zTop, zBot, zAt, halfAt, frame, sheet, Q, mk, grade, printGround, piece, decks, walk, setHero, start,
     get pieces() { return pieces; }, stepHooks, onStep: (fn) => stepHooks.push(fn),   // paperfolk: the game reads the sprite list and ticks with the world
+    overlay: (fn) => overlayHooks.push(fn),   // paperfolk: an overlay draws last in render(), above the world and its vignette
     get rnd() { return rnd; }, reseed: (n) => { rnd = P2.rng(n); return rnd; }, get hero() { return hero; } };
 
   function start() {

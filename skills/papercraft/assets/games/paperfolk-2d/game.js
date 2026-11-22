@@ -218,7 +218,7 @@ const PFG = (() => {
   };
   // fromDrawing keeps the drawing's own coordinates: scale the traced outline up to the kind's real size, exactly as
   // the 3D game does; a shy folk is printed 1.2x (the 3D spawn's `scale: shy ? 1.2 : 1` folded into the map)
-  const folkPiece = (k, shy) => { const K = KINDS[k], s = K.s * (shy ? 1.2 : 1); return [P2.fromDrawing(K.draw, { w: K.w, h: K.h, name: 'folk-' + k }).map(([x, y]) => [x * s, y * s]), folkPrint(K.base, K.accent, K.kind || 'dot')]; };
+  const folkPiece = (k, shy, starter) => { const K = KINDS[k], s = K.s * (shy ? 1.2 : 1) * (starter ? 1.2 : 1); return [P2.fromDrawing(K.draw, { w: K.w, h: K.h, name: 'folk-' + k }).map(([x, y]) => [x * s, y * s]), folkPrint(K.base, K.accent, K.kind || 'dot')]; };
 
   // ---- the folk band and the board's keep-outs ----------------------------------------------------------------------
   // the visible page between the frame's edges (the harness's own bounds, so every frame shape hides folk in the same
@@ -261,12 +261,16 @@ const PFG = (() => {
   });
 
   // ---- hiding spots: anchors near the fill's own pieces (tucked like the 3D game), open fallbacks, then random tries
+  // the greeter: beside the hero on the side toward the frame's middle (H.frame.cx), a few units toward the camera.
+  // Its reserved ground is kept clear of the seeded spots; the fixup pass never moves it.
+  const GREETER_AT = [HERO_AT[0] + (H.frame.cx >= HERO_AT[0] ? 3.35 : -3.35), Math.min(Z1 - 1, Math.max(Z0 + 1, HERO_AT[1] + 0.7))];
   const cands = [];
   for (const [ax, az] of [...trees, ...spots]) if (az >= Z0 - 2 && az <= Z1 + 2 && Math.abs(ax) < H.halfAt(az) - 2) cands.push([ax, az]);
   for (let i = cands.length - 1; i > 0; i--) { const j = Math.floor(pr() * (i + 1)); [cands[i], cands[j]] = [cands[j], cands[i]]; }
   const fspots = [], fspare = [];
   const spotOk = (x, z, shy) => inBand(x, z, 5) && folkFree(x, z, shy ? 1.2 : 0.6) && !bigPieceNear(x, z)
     && Math.hypot(x - HERO_AT[0], z - HERO_AT[1]) > 6
+    && Math.hypot(x - GREETER_AT[0], z - GREETER_AT[1]) > 6.5
     && fspots.every(([px, pz]) => Math.hypot(x - px, z - pz) > 9) && fspare.every(([px, pz]) => Math.hypot(x - px, z - pz) > 6)
     && (!shy || openGround(x, z));
   for (const [ax, az] of cands) {
@@ -284,7 +288,7 @@ const PFG = (() => {
   const shySpots = [];
   for (let tries = 0; shySpots.length < 2 && tries < 8000; tries++) {
     const z = Z0 + pr() * (Z1 - Z0), x = (pr() - 0.5) * 2 * Math.max(10, H.halfAt(z) - 5);
-    if (spotOk(x, z, true) && [...fspots, ...fspare, ...shySpots].every(([px, pz]) => Math.hypot(x - px, z - pz) > 9)) shySpots.push([x, z]);
+    if (spotOk(x, z, true) && Math.hypot(x - GREETER_AT[0], z - GREETER_AT[1]) > 7 && [...fspots, ...fspare, ...shySpots].every(([px, pz]) => Math.hypot(x - px, z - pz) > 9)) shySpots.push([x, z]);
   }
   for (let i = 0; i < 2; i++) if (!shySpots[i]) shySpots[i] = (fspare.length >= 2 ? fspare.splice(fspare.length - 2 + i, 1)[0] : [(pr() - 0.5) * 40, Z0 + pr() * (Z1 - Z0)]);
 
@@ -295,7 +299,7 @@ const PFG = (() => {
     if (f.h) { const i = H.pieces.indexOf(f.h); if (i >= 0) H.pieces.splice(i, 1); }   // a respawn (the fixup pass): take the old card off the page first
     f.x = x; f.z = z; f.shy = shy;
     clearNest(x, z);   // lift any small dressing off the folk's nest so no card ever overdraws it
-    f.h = H.piece(...folkPiece(f.kind, shy), { x, z, seed: 700 + f.id * 13, sway: shy ? 0.1 : 0.25, turned: shy });
+    f.h = H.piece(...folkPiece(f.kind, shy, f.starter), { x, z, seed: 700 + f.id * 13, sway: f.starter ? 0.4 : shy ? 0.1 : 0.25, turned: shy });
     f.h.folk = f;
     if (H.isOpen && H.isOpen()) f.h.spring.reset(1);   // a respawn after the world rose stands up at once: its pose is what the player sees
   }
@@ -338,6 +342,119 @@ const PFG = (() => {
     }
     return { clear: score > 0, score };
   }
+
+  // ---- the greeter: one of the eight is placed by hand, in view, and the fixup pass never moves it --------------------
+  // Its reserved spot is beside the hero toward the frame's middle. If a fill piece still hides it, a deterministic ring
+  // of nudges toward the middle finds the first spot that passes the same clearance tests as every other folk AND the
+  // sprite-coverage visibility test this engine's picking uses.
+  function placeGreeter(f) {
+    const ok = (x, z) => inBand(x, z, 4) && folkFree(x, z, 0.6) && !bigPieceNear(x, z)
+      && Math.hypot(x - HERO_AT[0], z - HERO_AT[1]) > 2.6
+      && FOLK.every((g) => g === f || Math.hypot(x - g.x, z - g.z) > 5);
+    if (f.h && ok(f.x, f.z) && safeOnScreen(f) && visibility(f).clear) { f.ok = true; return true; }   // it already rises in the reserved spot: keep it
+    const offs = [[0, 0]];
+    for (const r of [0.9, 1.8, 2.7, 3.6]) for (const a of [0, 0.72, -0.72, Math.PI / 2, -Math.PI / 2, Math.PI - 0.72, Math.PI + 0.72, Math.PI]) offs.push([Math.cos(a) * r, Math.sin(a) * r * 0.6]);
+    let best = null, bestScore = -1;
+    for (const [dx, dz] of offs) {
+      const x = GREETER_AT[0] + dx, z = GREETER_AT[1] + dz;
+      if (!ok(x, z)) continue;
+      spawn(f, x, z, false);
+      if (!safeOnScreen(f)) continue;
+      const v = visibility(f);
+      if (v.clear) { f.ok = true; return true; }
+      if (v.score > bestScore) { bestScore = v.score; best = [x, z]; }
+    }
+    if (best) { spawn(f, best[0], best[1], false); f.ok = true; return true; }
+    spawn(f, GREETER_AT[0], GREETER_AT[1], false);
+    f.ok = true;
+    return false;
+  }
+  const starter = FOLK.find((f) => !f.shy && f.kind === 'robin') || FOLK.find((f) => !f.shy && f.kind === 'beetle') || FOLK.find((f) => !f.shy);
+  if (starter) {
+    starter.starter = true;
+    spawn(starter, GREETER_AT[0], GREETER_AT[1], false);   // it rises with the world in the reserved spot...
+  }
+
+  // ---- the paper butterfly: a diegetic stuck hint, on the harness clock -----------------------------------------
+  // If nothing is found 30 s after the first interaction (the end-card clock starts on the same pointerdown), then
+  // every ~35 s after, a tiny paper butterfly enters from a frame edge, flutters to a point beside the nearest visible
+  // unfound folk, hovers, and leaves. It is an overlay only (H.overlay), never a sprite: nothing can pick it.
+  const bf = { active: false, phase: 'idle', t: 0, age: 0, op: 0, target: null, x: 0, y: 0, from: null, to: null, away: null };
+  let hintStuck = 0, hintNext = 30;
+  function hideButterfly() { bf.active = false; bf.phase = 'idle'; bf.target = null; bf.op = 0; }
+  function startHint() {
+    if (done) return false;
+    const unfound = FOLK.filter((f) => !f.found);
+    if (!unfound.length) return false;
+    const seen = unfound.filter((f) => safeOnScreen(f) && visibility(f).clear);
+    const pool = seen.length ? seen : unfound;
+    let target = pool[0], best = Infinity;
+    for (const f of pool) { const d = Math.hypot(f.x - HERO_AT[0], f.z - HERO_AT[1]); if (d < best) { best = d; target = f; } }
+    const c = cvEl();
+    const [sx0, sy0] = H.proj(target.x, 0.8, target.z);
+    const uk = Math.abs(H.proj(target.x + 1, 0, target.z)[0] - H.proj(target.x, 0, target.z)[0]) || 8;
+    const dir = sx0 < c.width / 2 ? 1 : -1;   // beside it, toward the frame's middle
+    const hx = sx0 + dir * Math.max(18, 2.5 * uk), hy = sy0 - Math.max(8, 0.6 * uk);
+    const enterLeft = hx < c.width / 2;
+    bf.from = { x: enterLeft ? -26 : c.width + 26, y: Math.min(c.height * 0.86, hy + 60) };
+    bf.to = { x: hx, y: hy };
+    bf.away = { x: enterLeft ? c.width + 26 : -26, y: Math.max(c.height * 0.12, hy - 70) };
+    bf.target = target; bf.active = true; bf.phase = 'in'; bf.t = 0; bf.age = 0; bf.op = 1; bf.x = bf.from.x; bf.y = bf.from.y;
+    return true;
+  }
+  function stepButterfly(dt) {
+    if (!bf.active) return;
+    bf.t += dt; bf.age += dt;
+    if (bf.phase === 'in') {
+      const u = Math.min(1, bf.t / 1.7), e = u * u * (3 - 2 * u);
+      bf.x = bf.from.x + (bf.to.x - bf.from.x) * e + Math.sin(u * 12) * 26 * (1 - u);
+      bf.y = bf.from.y + (bf.to.y - bf.from.y) * e + Math.sin(u * 16 + 1) * 18 * (1 - u);
+      bf.op = Math.min(1, u * 2.5);
+      if (u >= 1) { bf.phase = 'hover'; bf.t = 0; }
+    } else if (bf.phase === 'hover') {
+      bf.x = bf.to.x + Math.sin(bf.t * 1.7) * 10; bf.y = bf.to.y + Math.sin(bf.t * 2.6) * 5; bf.op = 1;
+      if (bf.t > 4.2) { bf.phase = 'out'; bf.t = 0; }
+    } else if (bf.phase === 'out') {
+      const u = Math.min(1, bf.t / 1.6), e = u * u * (3 - 2 * u);
+      bf.x = bf.to.x + (bf.away.x - bf.to.x) * e + Math.sin(u * 10) * 20 * (1 - u);
+      bf.y = bf.to.y + (bf.away.y - bf.to.y) * e + Math.sin(u * 14) * 14 * (1 - u);
+      bf.op = 1 - u;
+      if (u >= 1) hideButterfly();
+    }
+  }
+  H.onStep((time, dt) => {
+    stepButterfly(dt);
+    if (!started || done || FOLK.some((f) => f.found)) return;   // the getting-started hint only
+    hintStuck += dt;
+    if (hintStuck >= hintNext) { startHint(); hintNext += 35; }
+  });
+  // paperfolk: the butterfly draws above the finished world (the harness's overlay hook), never a picking sprite
+  H.overlay((g) => {
+    if (!bf.active || bf.op <= 0.01) return;
+    const s = Math.max(7, Math.min(16, cvEl().width / 100));
+    const flap = 0.25 + 0.6 * (0.5 + 0.5 * Math.sin(bf.age * 18));
+    const bob = Math.sin(bf.age * 3.2) * s * 0.12;
+    g.save();
+    g.globalAlpha = Math.max(0, Math.min(1, bf.op));
+    g.translate(bf.x, bf.y + bob);
+    g.rotate(Math.sin(bf.age * 2.3) * 0.08);
+    g.lineWidth = Math.max(1, s * 0.055);
+    for (const d of [-1, 1]) {
+      g.save(); g.scale(d * flap, 1);
+      g.beginPath(); g.moveTo(0, 0);
+      g.bezierCurveTo(s * 0.28, -s * 0.55, s * 0.92, -s * 0.45, s * 0.94, s * 0.05);
+      g.bezierCurveTo(s * 0.92, s * 0.5, s * 0.3, s * 0.42, 0, s * 0.12);
+      g.closePath();
+      g.fillStyle = '#f6ead0'; g.fill(); g.strokeStyle = '#7a4a22'; g.stroke();
+      g.beginPath(); g.ellipse(s * 0.58, s * 0.02, s * 0.24, s * 0.16, 0.25, 0, 7); g.fillStyle = '#e0b25e'; g.fill();
+      g.restore();
+    }
+    g.beginPath(); g.moveTo(0, -s * 0.4); g.lineTo(0, s * 0.3); g.strokeStyle = '#5a3a28'; g.stroke();
+    g.restore();
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
+  });
+  // a tiny debug readout for the main session's stepped-time tests (the game's public hooks keep their shapes)
+  window.__paperfolkHint = () => ({ active: bf.active, phase: bf.phase, target: bf.target ? bf.target.id : null, stuck: +hintStuck.toFixed(2), next: hintNext });
 
   // ---- picking: a short click greets a folk; an empty click falls through to the harness and folds the world --------
   const pickFolk = (cx, cy) => {
@@ -384,6 +501,7 @@ const PFG = (() => {
 
   function collect(f) {
     f.found = true;
+    hintStuck = 0; if (bf.active) hideButterfly();   // the hint's job is done: no butterfly for a found world
     if (H.sound) H.sound.flap({ size: 0.5, up: true, key: 'folk' + f.id });
     // a happy paper rise and settle: the 3D game nudges its spring's target past upright; this engine's FlapSpring only
     // rises toward target 1, so kick the latched spring's velocity instead and let its own quiver settle it back
@@ -454,6 +572,7 @@ const PFG = (() => {
     if (fi < FOLK.length) {
       const f = FOLK[fi++];
       if (!f.found) {
+        if (f.starter) { f.ok = true; after(0.15, fixup); return; }   // the greeter's hand-placed spot is final
         f.ok = folkOk(f);
         if (!f.ok) {
           if (fixups < 5) { if (relocate(f)) moved = true; }
@@ -464,6 +583,7 @@ const PFG = (() => {
     } else if (moved && ++fixups < 6) { moved = false; fi = 0; after(0.15, fixup); }
   };
   after(0.8, fixup);
+  if (starter) after(2.0, () => { if (!starter.found) placeGreeter(starter); });   // the raised world's sprite-coverage test confirms or nudges the greeter
 
   // ---- the test hook (?seed=N drives it): positions, screen places, visibility and synthetic clicks ------------------
   return {
@@ -471,7 +591,7 @@ const PFG = (() => {
     state: () => ({ seed: SEED, foldOpen: H.isOpen ? H.isOpen() : null, found: FOLK.filter((f) => f.found).length, total: FOLK.length, done }),
     // clickClear: standing coverage (the 2D sibling of the 3D probe rays); facing: +1 the print is toward the camera,
     // -1 a turned card; screen: CSS px of the folk's VISIBLE card centre, in the world's current fold state
-    probe: () => FOLK.map((f) => { const v = visibility(f); return { id: f.id, kind: f.kind, shy: f.shy, x: +f.x.toFixed(1), z: +f.z.toFixed(1), clickClear: v.clear, facing: f.shy ? -1 : 1, onScreen: safeOnScreen(f), screen: project(f), found: f.found }; }),
+    probe: () => FOLK.map((f) => { const v = visibility(f); return { id: f.id, kind: f.kind, shy: f.shy, x: +f.x.toFixed(1), z: +f.z.toFixed(1), clickClear: v.clear, facing: f.shy ? -1 : 1, onScreen: safeOnScreen(f), screen: project(f), found: f.found, starter: !!f.starter }; }),
     click: (id) => { const f = FOLK[id], [sx, sy] = project(f); dispatchEvent(new PointerEvent('pointerdown', { clientX: sx, clientY: sy })); dispatchEvent(new PointerEvent('pointerup', { clientX: sx, clientY: sy })); },
     fold: () => H.setOpen(!H.isOpen()),
   };

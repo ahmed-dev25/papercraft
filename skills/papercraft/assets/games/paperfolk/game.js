@@ -567,6 +567,10 @@ const PFG = (() => {
   // doorstep, a bridge end or a hay bale is exactly the hiding this game wants (the blade rule still keeps it off
   // every real card, and the nest clears the small dressing underfoot)
   const folkFree = (x, z, m = 0.45) => riverDist(x, z) > 3.4 + m && pathDist(x, z) > 1.7 + m;
+  // the greeter: one of the eight is placed by hand beside the path, a few units toward the camera and on the side
+  // toward the frame's middle (the hero stands right of centre), so the first find is always in clear view. The seeded
+  // spots keep their distance from this reserved ground.
+  const GREETER_AT = [HERO_AT[0] - 3.35, HERO_AT[1] + 0.7];
   const cands = [];
   for (const [ax, az] of [...H.board.trees, ...H.board.placed]) {
     if (az < -22 || az > 6 || !H.inFrame(ax, az, 1)) continue;
@@ -577,6 +581,7 @@ const PFG = (() => {
   const spotOk = (x, z) => z >= -22 && z <= 6.5 && folkFree(x, z, 0.6) && !inPond(x, z, 1.15) && H.inFrame(x, z, 8)
     && !bigPieceNear(x, z)
     && Math.hypot(x - HERO_AT[0], z - HERO_AT[1]) > 6
+    && Math.hypot(x - GREETER_AT[0], z - GREETER_AT[1]) > 6.5
     && spots.every(([px, pz]) => Math.hypot(x - px, z - pz) > 9) && spares.every(([px, pz]) => Math.hypot(x - px, z - pz) > 6);
   for (const [ax, az] of cands) {
     if (spots.length >= 6 && spares.length >= 5) break;
@@ -598,6 +603,7 @@ const PFG = (() => {
       && keepOut.every(([hx, hz, r]) => hz <= z || hz - z > 6 || Math.abs(hx - x) > r + 3);
     if (z >= -22 && z <= 6.5 && folkFree(x, z, 1.2) && !inPond(x, z, 1.3) && H.inFrame(x, z, 8) && !bigPieceNear(x, z)
       && Math.hypot(x - HERO_AT[0], z - HERO_AT[1]) > 6 && openGround
+      && Math.hypot(x - GREETER_AT[0], z - GREETER_AT[1]) > 7
       && [...spots, ...spares, ...shySpots].every(([px, pz]) => Math.hypot(x - px, z - pz) > 9)) shySpots.push([x, z]);
   }
   for (let i = 0; i < 2; i++) if (!shySpots[i]) shySpots[i] = (spares.length >= 2 ? spares.splice(spares.length - 2 + i, 1)[0] : [(pr() - 0.5) * 50, -12 + pr() * 14]);
@@ -614,7 +620,7 @@ const PFG = (() => {
     f.x = x; f.z = z; f.shy = shy;
     clearNest(x, z);   // lift any small dressing off the folk's nest so no cards ever clip
     f.yaw = shy ? faceCam(x, z) + Math.PI : faceCam(x, z) + (pr() - 0.5) * 0.5;
-    f.h = popup(...folkPiece(f.kind), { x, z, yaw: f.yaw, sway: shy ? 0.1 : 0.25, scale: shy ? 1.2 : 1 });
+    f.h = popup(...folkPiece(f.kind), { x, z, yaw: f.yaw, sway: f.starter ? 0.4 : shy ? 0.1 : 0.25, scale: f.starter ? 1.2 : shy ? 1.2 : 1 });
     f.h.pivot.traverse((o) => { if (o.isMesh) meshToFolk.set(o, f); });
     if (H.isOpen && H.isOpen()) f.h.reset(1);   // a respawn after the world rose stands up at once: its pose is what the player sees
   }
@@ -660,6 +666,7 @@ const PFG = (() => {
 
   function collect(f) {
     f.found = true;
+    hintStuck = 0; if (bf.active) hideButterfly();   // the hint's job is done: no butterfly for a found world
     H.sound.flap({ size: 0.5, up: true, key: 'folk' + f.id });
     f.h.set(1.14, 1.2); after(0.5, () => f.h.set(1, 0.7));   // a happy paper rise and settle
     const tok = $('tok' + f.id); if (tok) tok.classList.add('found');
@@ -704,6 +711,140 @@ const PFG = (() => {
     return { clear: score > 0, score, facing: facingOf(f, cp) };
   }
   function facingOf(f, cp) { const nx = Math.sin(f.yaw), nz = Math.cos(f.yaw), L = Math.hypot(cp.x - f.x, cp.z - f.z) || 1; return +((nx * (cp.x - f.x) + nz * (cp.z - f.z)) / L).toFixed(2); }
+
+  // ---- the greeter: one of the eight is placed by hand, in view, and the fixup pass never moves it --------------------
+  // Its reserved spot is beside the path by the hero. If a fill piece still hides it (the seed may put a bush there),
+  // a deterministic ring of nudges toward the frame's middle finds the first spot that passes the same clearance tests
+  // as every other folk AND the actual clickability probe.
+  function placeGreeter(f) {
+    const ok = (x, z) => z >= -22 && z <= 6.5 && folkFree(x, z, 0.6) && !inPond(x, z, 1.15) && H.inFrame(x, z, 8)
+      && !bigPieceNear(x, z) && Math.hypot(x - HERO_AT[0], z - HERO_AT[1]) > 2.6
+      && FOLK.every((g) => g === f || Math.hypot(x - g.x, z - g.z) > 5);
+    if (f.h && ok(f.x, f.z) && safeOnScreen(f) && visibility(f).clear) { f.ok = true; return true; }   // it already rises in the reserved spot: keep it
+    const offs = [[0, 0]];
+    for (const r of [0.8, 1.6, 2.4, 3.2]) for (const a of [Math.PI, Math.PI - 0.72, Math.PI + 0.72, Math.PI / 2, -Math.PI / 2, 0.72, -0.72]) offs.push([Math.cos(a) * r, Math.sin(a) * r * 0.7]);
+    let best = null, bestScore = -1;
+    for (const [dx, dz] of offs) {
+      const x = GREETER_AT[0] + dx, z = GREETER_AT[1] + dz;
+      if (!ok(x, z)) continue;
+      spawn(f, x, z, false);
+      if (!safeOnScreen(f)) continue;
+      const v = visibility(f);
+      if (v.clear) { f.ok = true; return true; }
+      if (v.score > bestScore) { bestScore = v.score; best = [x, z]; }
+    }
+    if (best) { spawn(f, best[0], best[1], false); f.ok = true; return true; }   // the least-blocked nudge still beats a hidden starter
+    spawn(f, GREETER_AT[0], GREETER_AT[1], false);
+    f.ok = true;
+    return false;
+  }
+  const starter = FOLK.find((f) => !f.shy && f.kind === 'robin') || FOLK.find((f) => !f.shy && f.kind === 'beetle') || FOLK.find((f) => !f.shy);
+  if (starter) {
+    starter.starter = true;
+    spawn(starter, GREETER_AT[0], GREETER_AT[1], false);   // it rises with the world in the reserved spot...
+    after(2.0, () => { if (starter && !starter.found) placeGreeter(starter); });              // ...then the raised world's probe confirms or nudges it
+  }
+
+  // ---- the paper butterfly: a diegetic stuck hint, on the harness clock -----------------------------------------
+  // If nothing is found 30 s after the first interaction (the end-card clock starts on the same pointerdown), then
+  // every ~35 s after, a tiny cut-paper butterfly enters from the frame edge, flutters to a point beside the nearest
+  // visible unfound folk, hovers, and leaves. It is scene decoration only: no hinge, no meshToFolk entry, no raycast,
+  // so it can neither be clicked nor block a probe. It exists only while found === 0 (the getting-started hint).
+  const bf = { g: null, wings: [], mats: [], phase: 'idle', t: 0, dur: 0, age: 0, target: null, active: false,
+    from: new H.THREE.Vector3(), to: new H.THREE.Vector3(), away: new H.THREE.Vector3() };
+  let hintStuck = 0, hintNext = 30;
+  const _hv = new H.THREE.Vector3();
+  const wingCut = (s) => [[0, 0], [s * 0.09, 0.13], [s * 0.27, 0.21], [s * 0.45, 0.13], [s * 0.4, -0.03], [s * 0.17, -0.08]];
+  function butterfly() {
+    if (bf.g) return bf.g;
+    const g = new H.THREE.Group();
+    for (const s of [-1, 1]) {
+      const m = makeCard(wingCut(s), { paper: H.paper, thickness: 0.02, edgeWidth: 0.018, pxPerUnit: 96, seed: 1400 + s, back: 'kraft',
+        paint: (P) => { P.gradient('#f8eed8', '#e2b562', 0.55); P.marks('dot', { color: '#a8683a', alpha: 0.45, size: 0.035, density: 0.45 }); P.innerShade('#7a4a22', { alpha: 0.3, blurPx: 6 }); } });
+      m.position.z = s * 0.004;
+      m.traverse((o) => {
+        if (!o.isMesh) return;
+        o.renderOrder = 999; o.frustumCulled = false; o.raycast = () => {}; o.castShadow = o.receiveShadow = false;
+        for (const mat of (Array.isArray(o.material) ? o.material : [o.material])) {
+          mat.depthTest = false; mat.depthWrite = false; mat.transparent = true; mat.opacity = 0.96;
+          if (!bf.mats.includes(mat)) bf.mats.push(mat);
+        }
+      });
+      bf.wings.push(m); g.add(m);
+    }
+    g.name = 'paperfolk-butterfly'; g.visible = false; g.renderOrder = 999;
+    g.traverse((o) => { if (o.isMesh) o.visible = false; });
+    H.scene.add(g); bf.g = g; return g;
+  }
+  function bfVisible(v) {
+    if (!bf.g) return;
+    bf.g.visible = v;
+    bf.g.traverse((o) => { if (o.isMesh) o.visible = v; });   // cards()/culling see a hidden hint as absent, not as two stray cards
+  }
+  function hideButterfly() { bf.active = false; bf.phase = 'idle'; bf.target = null; bfVisible(false); }
+  function startHint() {
+    if (done) return false;
+    const unfound = FOLK.filter((f) => !f.found);
+    if (!unfound.length) return false;
+    const seen = unfound.filter((f) => safeOnScreen(f) && visibility(f).clear);
+    const pool = seen.length ? seen : unfound;
+    const hx = H.hero ? H.hero.group.position.x : HERO_AT[0], hz = H.hero ? H.hero.group.position.z : HERO_AT[1];
+    let target = pool[0], best = Infinity;
+    for (const f of pool) { const d = Math.hypot(f.x - hx, f.z - hz); if (d < best) { best = d; target = f; } }
+    const cp = H.camera.position, nx = -(target.z - cp.z), nz = target.x - cp.x, nl = Math.hypot(nx, nz) || 1;
+    const a = [target.x + nx / nl * 2.5, target.z + nz / nl * 2.5], b = [target.x - nx / nl * 2.5, target.z - nz / nl * 2.5];
+    const ax = _hv.set(a[0], 1.5, a[1]).project(H.camera).x, bx = _hv.set(b[0], 1.5, b[1]).project(H.camera).x;
+    const hov = Math.abs(ax) <= Math.abs(bx) ? a : b;
+    const g = butterfly();
+    bf.to.set(hov[0], 1.55, hov[1]);
+    const ndcX = _hv.set(bf.to.x, bf.to.y, bf.to.z).project(H.camera).x;
+    const enter = H.groundAt(ndcX < 0 ? -1.05 : 1.05, 0.1);
+    bf.from.set(enter ? enter.x : bf.to.x + (ndcX < 0 ? -18 : 18), 2.2, enter ? enter.z : bf.to.z);
+    const leave = H.groundAt(ndcX < 0 ? 1.08 : -1.08, 0.05);
+    bf.away.set(leave ? leave.x : bf.to.x, 2.6, leave ? leave.z : bf.to.z + 16);
+    bf.target = target; bf.phase = 'in'; bf.t = 0; bf.dur = 1.7; bf.age = 0; bf.active = true;
+    bfVisible(true); g.position.copy(bf.from); g.scale.setScalar(1);
+    for (const mat of bf.mats) mat.opacity = 0.96;
+    return true;
+  }
+  function stepButterfly(dt) {
+    if (!bf.active) return;
+    bf.t += dt; bf.age += dt;
+    const g = bf.g;
+    let fade = 1;
+    if (bf.phase === 'in') {
+      const u = Math.min(1, bf.t / bf.dur), e = u * u * (3 - 2 * u);
+      g.position.lerpVectors(bf.from, bf.to, e);
+      g.position.x += Math.sin(u * 12) * 0.9 * (1 - u);
+      g.position.y += Math.sin(u * 16 + 1) * 0.45 * (1 - u) + Math.sin(u * 6) * 0.15;
+      fade = Math.min(1, u * 2.5);
+      if (u >= 1) { bf.phase = 'hover'; bf.t = 0; }
+    } else if (bf.phase === 'hover') {
+      g.position.set(bf.to.x + Math.sin(bf.t * 1.7) * 0.55, bf.to.y + Math.sin(bf.t * 2.6) * 0.18, bf.to.z + Math.cos(bf.t * 1.3) * 0.35);
+      if (bf.t > 4.2) { bf.phase = 'out'; bf.t = 0; }
+    } else if (bf.phase === 'out') {
+      const u = Math.min(1, bf.t / 1.6), e = u * u * (3 - 2 * u);
+      g.position.lerpVectors(bf.to, bf.away, e);
+      g.position.x += Math.sin(u * 10) * 0.7 * (1 - u);
+      g.position.y += Math.sin(u * 14) * 0.35 * (1 - u);
+      fade = 1 - u;
+      if (u >= 1) { hideButterfly(); return; }
+    }
+    g.rotation.y = Math.atan2(H.camera.position.x - g.position.x, H.camera.position.z - g.position.z);
+    const flap = 0.18 + 0.62 * (0.5 + 0.5 * Math.sin(bf.age * 18));
+    bf.wings[0].rotation.y = flap; bf.wings[1].rotation.y = -flap;
+    g.scale.setScalar(1 + 0.05 * Math.sin(bf.age * 7));
+    for (const mat of bf.mats) mat.opacity = 0.96 * fade;
+  }
+  H.onStep((time, dt) => {
+    stepButterfly(dt);
+    if (!started || done || FOLK.some((f) => f.found)) return;   // the getting-started hint only
+    hintStuck += dt;
+    if (hintStuck >= hintNext) { startHint(); hintNext += 35; }
+  });
+  // a tiny debug readout for the main session's stepped-time tests (the game's public hooks keep their shapes)
+  window.__paperfolkHint = () => ({ active: bf.active, phase: bf.phase, target: bf.target ? bf.target.id : null, stuck: +hintStuck.toFixed(2), next: hintNext });
+
   // a blocked or off-screen folk moves: candidates are drawn ON SCREEN (unprojected to the page) so the frame can
   // never cut them, then checked against the river, the path, the pond, the folk and the landmarks like any placement
   function relocate(f, debug) {
@@ -753,6 +894,7 @@ const PFG = (() => {
     if (fi < FOLK.length) {
       const f = FOLK[fi++];
       if (!f.found) {
+        if (f.starter) { f.ok = true; after(0.15, fixup); return; }   // the greeter's hand-placed spot is final
         f.ok = f.shy ? safeOnScreen(f) : (visibility(f).clear && safeOnScreen(f));
         if (!f.ok) {
           if (fixups < 5) { if (relocate(f)) moved = true; }
@@ -794,7 +936,7 @@ const PFG = (() => {
       }) };
     },
     state: () => ({ seed: SEED, foldOpen: H.isOpen(), found: FOLK.filter((f) => f.found).length, total: FOLK.length, done }),
-    probe: () => FOLK.map((f) => { const v = visibility(f); return { id: f.id, kind: f.kind, shy: f.shy, x: +f.x.toFixed(1), z: +f.z.toFixed(1), clickClear: v.clear, facing: v.facing, onScreen: safeOnScreen(f), screen: project(f), found: f.found }; }),
+    probe: () => FOLK.map((f) => { const v = visibility(f); return { id: f.id, kind: f.kind, shy: f.shy, x: +f.x.toFixed(1), z: +f.z.toFixed(1), clickClear: v.clear, facing: v.facing, onScreen: safeOnScreen(f), screen: project(f), found: f.found, starter: !!f.starter }; }),
     click: (id) => { const f = FOLK[id], [sx, sy] = project(f); dispatchEvent(new PointerEvent('pointerdown', { clientX: sx, clientY: sy })); dispatchEvent(new PointerEvent('pointerup', { clientX: sx, clientY: sy })); },
     fold: () => H.setOpen(!H.isOpen()),
     toast,   // the HUD's paper note: the live tier step-down (section 10) speaks through it too
