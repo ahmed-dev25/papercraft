@@ -20,17 +20,27 @@ const START_LEVEL = Number.isFinite(LEVEL_P) ? Math.max(1, Math.min(LEVELS.lengt
 const REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 const CAPTURE = QP.has('capture');
 const COARSE = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+// a level deep link (and the capture harness) goes straight to the page; the book opens on the cover otherwise
+const START_ON_TITLE = !Number.isFinite(LEVEL_P) && !CAPTURE;
 
 // the printed marginalia, in the book's own voice
 const PLATE_NOTES = {
   1: 'The right wing is carried over the body and the seam printed a little off the centre, so a narrow margin of the upper surface stays face up.',
   2: 'The wing bar turns down first; the right half then folds over it, leaving the long body bare and the left wing doubled on the page.',
   3: 'The midrib is creased first, then the overhanging tip is turned back beneath itself until the two veins meet at the point.',
+  4: 'The wing is printed wide of the body; carried in, its shadow lies along the breast and the bird stands at rest.',
+  5: 'The chimney is printed on the fold; turned down it lies on the roof, its tip tucked under the ridge.',
+  6: 'The rudder folds across the transom; the little overhang is turned back beneath the keel.',
+  7: 'The fletching is printed beyond the shaft; folded in, its barb is tucked behind the nock.',
+  8: 'The chin is scored below the muzzle; lifted, the small whisker tucks under the jaw.',
+  9: 'The needle is printed past the south point; folded up, its tip is tucked beneath the rose.',
+  10: 'The ribbon is scored at the shield\u2019s edge; turned over, its tail tucks beneath the crest.',
 };
 
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d', { alpha: false });
 const ui = document.getElementById('ui');
+const playUI = document.getElementById('play-ui');
 const hud = document.getElementById('hud');
 const pageNum = document.getElementById('page-num');
 const foldCount = document.getElementById('fold-count');
@@ -39,9 +49,20 @@ const plateEl = document.getElementById('plate');
 const captionEl = document.getElementById('caption');
 const hintEl = document.getElementById('hint');
 const toolsEl = document.getElementById('tools');
+const crumbsEl = document.getElementById('crumbs');
+const crumbText = document.getElementById('crumb-text');
+const crumbFill = document.getElementById('crumb-fill');
 const unfoldBtn = document.getElementById('unfold');
 const restartBtn = document.getElementById('restart');
 const nextBtn = document.getElementById('next');
+const coverEl = document.getElementById('cover');
+const coverSpecimenEl = document.getElementById('cover-specimen');
+const openBtn = document.getElementById('open-book');
+const endEl = document.getElementById('end');
+const endGrid = document.getElementById('end-grid');
+const endStats = document.getElementById('end-stats');
+const againBtn = document.getElementById('again');
+const toCoverBtn = document.getElementById('to-cover');
 const loading = document.getElementById('loading');
 
 // DOM: the three progress dots
@@ -55,6 +76,14 @@ for (let i = 0; i < LEVELS.length; i++) {
 }
 dotsEl.setAttribute('role', 'img');
 dotsEl.setAttribute('aria-label', 'page progress');
+
+let screen = START_ON_TITLE ? 'title' : 'play';
+let complete = false;
+const solvedPages = new Set();
+const plateFolds = new Map();
+let bookOpenedAt = 0;
+let finishedAt = 0;
+let turn = null;
 
 let levelIndex = START_LEVEL - 1;
 let currentLevel = LEVELS[levelIndex];
@@ -120,10 +149,16 @@ function boot() {
 
     resizeCanvas();
     loadLevel(START_LEVEL, { initial: true });
+    buildEndGrid();
+    applyScreenVisibility();
+    computeLayout();
+    applyScreenLayout();
+    updateHud();
     if (CAPTURE) { hintEl.style.display = 'none'; }
     requestAnimationFrame(frame);
     if (loading) loading.remove();
     started = true;
+    render();
   } catch (err) {
     showError(err);
     throw err;
@@ -164,7 +199,7 @@ function loadLevel(n, { initial = false } = {}) {
   resizeCanvas();
   computeLayout();
   lastEval = G.evaluate(currentLevel, folds);
-  hintEl.textContent = currentLevel.hint;
+  setHint(currentLevel.hint);
   hintEl.classList.remove('faded');
   if (CAPTURE) hintEl.style.display = 'none';
   updateHud();
@@ -172,6 +207,14 @@ function loadLevel(n, { initial = false } = {}) {
   updateUrl();
   dirty = true;
   if (!initial) render();
+}
+
+function setHint(text) {
+  hintEl.replaceChildren();
+  const tag = document.createElement('span');
+  tag.className = 'hint-tag';
+  tag.textContent = text;
+  hintEl.appendChild(tag);
 }
 
 function ensureArt(level) {
@@ -193,7 +236,7 @@ function resetLevel() {
   dragging = null;
   pendingUnfold = null;
   hintFaded = false;
-  hintEl.textContent = currentLevel.hint;
+  setHint(currentLevel.hint);
   hintEl.classList.remove('faded');
   if (CAPTURE) hintEl.style.display = 'none';
   lastEval = G.evaluate(currentLevel, folds);
@@ -202,8 +245,20 @@ function resetLevel() {
   dirty = true;
 }
 
+function markSolved() {
+  if (!solvedPages.has(currentLevel.id)) {
+    solvedPages.add(currentLevel.id);
+    plateFolds.set(currentLevel.id, folds.length);
+  }
+  if (solvedPages.size >= LEVELS.length) {
+    complete = true;
+    if (!finishedAt) finishedAt = Date.now();
+  }
+}
+
 function startSeat() {
   solved = true;
+  markSolved();
   seat = { t: 0, dur: REDUCED ? 0.012 : 0.95, done: false, stampT: 0, stampDone: false };
   hintEl.classList.add('faded');
   if (REDUCED) { seat.t = seat.dur; seat.done = true; seat.stampT = 0.25; seat.stampDone = true; }
@@ -217,11 +272,25 @@ function updateHud() {
   foldCount.textContent = `folds ${folds.length}`;
   dots.forEach((d, i) => {
     d.classList.toggle('on', i === levelIndex);
-    d.classList.toggle('done', i < levelIndex || (i === levelIndex && solved));
+    d.classList.toggle('done', solvedPages.has(LEVELS[i].id) || i < levelIndex || (i === levelIndex && solved));
   });
   dotsEl.setAttribute('aria-label', `page ${levelIndex + 1} of ${LEVELS.length}`);
-  plateEl.textContent = `plate ${currentLevel.page} · ${currentLevel.title}`;
+  plateEl.replaceChildren();
+  const plateNo = document.createElement('span');
+  plateNo.className = 'plate-no';
+  plateNo.textContent = `plate ${currentLevel.page}`;
+  const plateTitle = document.createElement('span');
+  plateTitle.className = 'plate-title';
+  plateTitle.textContent = currentLevel.title;
+  plateEl.append(plateNo, plateTitle);
   captionEl.textContent = solved ? 'the specimen, folded' : 'the shape to make';
+  const last = levelIndex === LEVELS.length - 1;
+  nextBtn.textContent = last ? 'see the menagerie' : 'next page';
+  nextBtn.setAttribute('aria-label', last ? 'see the menagerie' : 'go to the next page');
+  if (crumbText) {
+    crumbText.textContent = complete ? 'the menagerie is complete' : `folded ${solvedPages.size} of ${LEVELS.length}`;
+    if (crumbFill) crumbFill.style.width = `${Math.round(100 * solvedPages.size / LEVELS.length)}%`;
+  }
   if (solved || hintFaded) hintEl.classList.add('faded');
   syncButtons();
 }
@@ -251,7 +320,8 @@ function updateUrl() {
   try {
     const u = new URL(location.href);
     u.searchParams.set('seed', String(SEED));
-    u.searchParams.set('level', String(levelIndex + 1));
+    if (screen === 'play') u.searchParams.set('level', String(levelIndex + 1));
+    else u.searchParams.delete('level');
     history.replaceState(null, '', u);
   } catch { /* file:// or a restricted history: the game still works */ }
 }
@@ -296,16 +366,29 @@ function reachBBox(level) {
   return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2 };
 }
 
+function safeInsets() {
+  const el = document.getElementById('safe-area');
+  if (!el) return { l: 0, r: 0, t: 0, b: 0 };
+  const cs = getComputedStyle(el);
+  const n = (v) => parseFloat(v) || 0;
+  return { l: n(cs.paddingLeft), r: n(cs.paddingRight), t: n(cs.paddingTop), b: n(cs.paddingBottom) };
+}
+
 function computeLayout() {
   const W = viewW, H = viewH;
   const mobile = W < 760;
-  const margin = mobile ? 12 : Math.max(22, Math.min(42, H * 0.04));
-  let pageH = H - 2 * margin;
-  let pageW = mobile ? W - 2 * margin : Math.min(620, pageH * 0.76);
-  pageW = Math.min(pageW, W - 2 * margin);
-  pageH = Math.min(pageH, H - 2 * margin);
-  const pageX = (W - pageW) / 2;
-  const pageY = (H - pageH) / 2;
+  const base = mobile ? 12 : Math.max(22, Math.min(42, H * 0.04));
+  const ins = safeInsets();
+  const left = Math.max(base, ins.l + 8);
+  const right = Math.max(base, ins.r + 8);
+  const top = Math.max(base, ins.t + 8);
+  const bottom = Math.max(base, ins.b + 8);
+  let pageH = H - top - bottom;
+  let pageW = mobile ? W - left - right : Math.min(620, pageH * 0.76);
+  pageW = Math.min(pageW, W - left - right);
+  pageH = Math.min(pageH, H - top - bottom);
+  const pageX = left + (W - left - right - pageW) / 2;
+  const pageY = top + (H - top - bottom - pageH) / 2;
 
   const hudH = mobile ? 38 : 42;
   const winW = pageW - (mobile ? 54 : 96);
@@ -346,8 +429,8 @@ function computeLayout() {
   // the printed note block sits in the empty band under the card, never on it
   const noteW = Math.min(pageW - (mobile ? 86 : 140), mobile ? 250 : 480);
   const noteX = pageX + (mobile ? 28 : 32);
-  const noteTop = cardRect.y + cardRect.h + 22;
-  const noteBottom = Math.min(toolsY - (mobile ? 30 : 18), pageY + pageH - (mobile ? 64 : 50));
+  const noteTop = cardRect.y + cardRect.h + 14;
+  const noteBottom = Math.min(toolsY - (mobile ? 56 : 42), pageY + pageH - (mobile ? 64 : 50));
   const note = {
     x: noteX,
     y: noteTop,
@@ -401,8 +484,17 @@ function computeLayout() {
   const specimenLeft = pageX;
   let specimen = null;
   if (!mobile) {
-    if (specimenSide >= 150) specimen = { x: pageX + pageW + 60, y: pageY + pageH * 0.27, w: 96, h: Math.min(360, pageH * 0.42) };
-    else if (specimenLeft >= 150) specimen = { x: pageX - 156, y: pageY + pageH * 0.27, w: 96, h: Math.min(360, pageH * 0.42) };
+    const side = Math.max(specimenSide, specimenLeft);
+    const sw = Math.min(176, side - 72);
+    const sh = Math.min(520, pageH * 0.68);
+    if (sw >= 96) {
+      specimen = {
+        x: specimenSide >= specimenLeft ? pageX + pageW + (specimenSide - sw) / 2 : pageX - sw - (specimenLeft - sw) / 2,
+        y: pageY + (pageH - sh) / 2,
+        w: sw,
+        h: sh,
+      };
+    }
   }
 
   layout = {
@@ -415,11 +507,11 @@ function computeLayout() {
     cardNow: { x: cardRect.x, y: cardRect.y, w: cardRect.w, h: cardRect.h },
     tools: { x: pageX + 18, y: toolsY, w: pageW - 36, h: toolsH },
     buttons: {},
-    plate: { x: pageX, y: winRect.y - 30, w: pageW, h: 18 },
-    caption: { x: pageX, y: winRect.y + winRect.h + 10, w: pageW, h: 16 },
-    hint: { x: pageX + 20, y: toolsY - 6, w: pageW - 40, h: 18 },
+    plate: { x: pageX, y: winRect.y - (mobile ? 28 : 46), w: pageW, h: mobile ? 16 : 34 },
+    caption: { x: pageX, y: winRect.y + winRect.h + 10, w: pageW, h: 22 },
+    hint: { x: pageX + 20, y: toolsY - 6, w: pageW - 40, h: 34 },
     note,
-    foot: { x: pageX, y: pageY + pageH - (mobile ? 10 : 7.5), w: pageW, h: 12 },
+    foot: { x: pageX, y: pageY + pageH - (mobile ? 16 : 10), w: pageW, h: 12 },
     specimen,
     scale,
     targetOrigin,
@@ -442,14 +534,17 @@ function computeLayout() {
   hud.style.top = `${pageY + 14}px`;
   hud.style.width = `${pageW - 44}px`;
   plateEl.style.left = `${pageX}px`;
-  plateEl.style.top = `${winRect.y - 30}px`;
+  plateEl.style.top = `${winRect.y - (mobile ? 28 : 46)}px`;
   plateEl.style.width = `${pageW}px`;
   captionEl.style.left = `${pageX}px`;
   captionEl.style.top = `${winRect.y + winRect.h + 10}px`;
   captionEl.style.width = `${pageW}px`;
   hintEl.style.left = `${pageX + 20}px`;
-  hintEl.style.top = `${toolsY - (mobile ? 22 : 14)}px`;
+  hintEl.style.top = `${toolsY - 6}px`;
   hintEl.style.width = `${pageW - 40}px`;
+  crumbsEl.style.left = `${pageX + 22}px`;
+  crumbsEl.style.top = `${pageY + 29}px`;
+  crumbsEl.style.width = `${pageW - 44}px`;
   toolsEl.style.left = `${pageX + 18}px`;
   toolsEl.style.top = `${toolsY}px`;
   toolsEl.style.width = `${pageW - 36}px`;
@@ -465,6 +560,156 @@ function publishLayout() {
   layout.solved = solved;
   layout.seated = !!(solved && seat && seat.done);
   if (window.__crease) window.__crease.layout = layout;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// screens: cover, play, completion
+// ---------------------------------------------------------------------------------------------------------------
+function applyScreenVisibility() {
+  const play = screen === 'play';
+  if (playUI) playUI.hidden = !play;
+  if (coverEl) coverEl.hidden = screen !== 'title';
+  if (endEl) endEl.hidden = screen !== 'end';
+  if (canvas) canvas.style.cursor = play ? '' : 'default';
+}
+
+function applyScreenLayout() {
+  if (!layout) return;
+  const p = layout.page;
+  for (const el of [coverEl, endEl]) {
+    if (!el) continue;
+    el.style.left = `${p.x}px`;
+    el.style.top = `${p.y}px`;
+    el.style.width = `${p.w}px`;
+    el.style.height = `${p.h}px`;
+  }
+}
+
+function setScreen(next) {
+  const s = next === 'title' || next === 'end' ? next : 'play';
+  if (s === 'play' && !bookOpenedAt) bookOpenedAt = Date.now();
+  screen = s;
+  applyScreenVisibility();
+  computeLayout();
+  applyScreenLayout();
+  if (s === 'end') {
+    for (const lv of LEVELS) {
+      solvedPages.add(lv.id);
+      if (!plateFolds.has(lv.id)) plateFolds.set(lv.id, lv.par);
+    }
+    complete = true;
+    if (!finishedAt) finishedAt = Date.now();
+    buildEndGrid();
+    updateEndStats();
+  }
+  updateHud();
+  updateUrl();
+  dirty = true;
+  render();
+}
+
+function formatTime(sec) {
+  const s = Math.max(0, Math.round(sec || 0));
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function buildEndGrid() {
+  if (!endGrid || endGrid.childElementCount) return;
+  for (const lv of LEVELS) {
+    const tb = G.bbox(lv.target);
+    const sc = 88 / Math.max(tb.w, tb.h);
+    const pts = lv.target.map(([x, y]) => `${(50 + (x - tb.cx) * sc).toFixed(2)},${(50 - (y - tb.cy) * sc).toFixed(2)}`).join(' ');
+    const cell = document.createElement('div');
+    cell.className = 'end-cell';
+    cell.setAttribute('role', 'listitem');
+    cell.setAttribute('aria-label', `plate ${lv.page}, ${lv.title}`);
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 100 100');
+    svg.setAttribute('aria-hidden', 'true');
+    const shadow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    shadow.setAttribute('points', pts);
+    shadow.setAttribute('transform', 'translate(1.7,1.7)');
+    shadow.setAttribute('fill', 'rgba(58,39,24,.16)');
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    poly.setAttribute('points', pts);
+    poly.setAttribute('fill', '#f4e6c8');
+    poly.setAttribute('stroke', '#3a2718');
+    poly.setAttribute('stroke-width', '1.3');
+    poly.setAttribute('stroke-linejoin', 'round');
+    svg.append(shadow, poly);
+    const no = document.createElement('span');
+    no.className = 'end-cell-no';
+    no.textContent = lv.page;
+    cell.append(svg, no);
+    endGrid.append(cell);
+  }
+}
+
+function updateEndStats() {
+  if (!endStats) return;
+  let total = 0;
+  for (const v of plateFolds.values()) total += v;
+  if (!total) for (const lv of LEVELS) total += lv.par;
+  const secs = finishedAt && bookOpenedAt ? (finishedAt - bookOpenedAt) / 1000 : 0;
+  endStats.textContent = `${LEVELS.length} plates · ${total} folds${secs > 0 ? ` · ${formatTime(secs)}` : ''}`;
+}
+
+function resetRun() {
+  solvedPages.clear();
+  plateFolds.clear();
+  complete = false;
+  finishedAt = 0;
+  bookOpenedAt = Date.now();
+  levelIndex = 0;
+}
+
+function startTurn() {
+  if (REDUCED) { turn = null; return; }
+  turn = { t: 0, dur: 0.36 };
+}
+
+function openBook() {
+  unlockAudio();
+  if (complete || solvedPages.size >= LEVELS.length) {
+    resetRun();
+    loadLevel(1);
+  }
+  bookOpenedAt = bookOpenedAt || Date.now();
+  setScreen('play');
+  startTurn();
+  manual = false;
+  render();
+}
+
+function startAgain() {
+  unlockAudio();
+  resetRun();
+  loadLevel(1);
+  setScreen('play');
+  startTurn();
+  manual = false;
+  render();
+}
+
+function goCover() {
+  unlockAudio();
+  turn = null;
+  setScreen('title');
+  manual = false;
+  render();
+}
+
+function finishHook() {
+  for (const lv of LEVELS) {
+    solvedPages.add(lv.id);
+    if (!plateFolds.has(lv.id)) plateFolds.set(lv.id, lv.par);
+  }
+  complete = true;
+  if (!bookOpenedAt) bookOpenedAt = Date.now();
+  finishedAt = Date.now();
+  setScreen('end');
+  return state();
 }
 
 function pageDeckle(x, y, w, h, r) {
@@ -769,6 +1014,11 @@ function finishAnim() {
 // update
 // ---------------------------------------------------------------------------------------------------------------
 function update(dt) {
+  if (turn && screen === 'play') {
+    turn.t += dt;
+    if (turn.t >= turn.dur) turn = null;
+    dirty = true;
+  }
   if (seat && !seat.done) {
     seat.t += dt;
     if (seat.t >= seat.dur) {
@@ -815,6 +1065,13 @@ function render() {
   ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0, 0, W, H);
 
+  if (screen !== 'play') {
+    drawScreenPage();
+    if (screen === 'title') drawCoverArt();
+    dirty = false;
+    return;
+  }
+
   drawSurround(W, H);
   drawPageShadow();
   drawTeal();
@@ -825,8 +1082,126 @@ function render() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawPageHoleEdges();
   drawSeatMarks();
+  drawTurn();
   refreshCardNow();
   dirty = false;
+}
+
+/** A bare printed page for the cover and the completion card: no window, the same deckle and cloth. */
+function drawScreenPage() {
+  const L = layout;
+  ctx.save();
+  drawSurround(viewW, viewH);
+
+  // a warm reading light on the cloth, then the page
+  const warm = ctx.createRadialGradient(L.pageX + L.pageW * 0.5, L.pageY + L.pageH * 0.34, 10, L.pageX + L.pageW * 0.5, L.pageY + L.pageH * 0.42, L.pageW * 0.9);
+  warm.addColorStop(0, 'rgba(216,177,112,.12)');
+  warm.addColorStop(1, 'rgba(216,177,112,0)');
+  ctx.fillStyle = warm;
+  ctx.fillRect(0, 0, viewW, viewH);
+
+  drawPageShadow();
+  ctx.save();
+  ctx.clip(polyPath(L.pageOutline));
+  ctx.fillStyle = pagePattern || '#efe0c2';
+  ctx.fillRect(L.pageX - 30, L.pageY - 30, L.pageW + 60, L.pageH + 60);
+  const g = ctx.createLinearGradient(L.pageX, L.pageY, L.pageX + L.pageW, L.pageY + L.pageH);
+  g.addColorStop(0, 'rgba(255,247,226,.12)');
+  g.addColorStop(0.55, 'rgba(255,247,226,0)');
+  g.addColorStop(1, 'rgba(105,72,40,.10)');
+  ctx.fillStyle = g;
+  ctx.fillRect(L.pageX - 20, L.pageY - 20, L.pageW + 40, L.pageH + 40);
+  // a printed keyline, clear of the content
+  ctx.strokeStyle = 'rgba(58,39,24,.18)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(L.pageX + 13.5, L.pageY + 13.5, L.pageW - 27, L.pageH - 27);
+  ctx.strokeStyle = 'rgba(58,39,24,.09)';
+  ctx.strokeRect(L.pageX + 18.5, L.pageY + 18.5, L.pageW - 37, L.pageH - 37);
+  if (screen === 'end') {
+    ctx.fillStyle = 'rgba(58,39,24,.42)';
+    ctx.font = `italic 11.5px Georgia, 'Times New Roman', serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    if (ctx.letterSpacing !== undefined) ctx.letterSpacing = '0.16em';
+    ctx.fillText('FINIS', L.pageX + L.pageW / 2, L.pageY + L.pageH - 26);
+    if (ctx.letterSpacing !== undefined) ctx.letterSpacing = '0px';
+  }
+  ctx.restore();
+
+  drawCutEdges(L.pageOutline, {
+    hole: false, light: [-0.55, -0.83],
+    dark: 'rgba(72,44,26,.72)', pale: 'rgba(248,236,208,.46)',
+    width: 1.5, paleWidth: 1.0, paleOffset: 1.4, eps: 0.6,
+  });
+  for (const f of L.fringe) {
+    ctx.strokeStyle = f.c;
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(f.x, f.y);
+    ctx.quadraticCurveTo(f.x + f.dx * 0.4, f.y + f.dy * 0.5, f.x + f.dx, f.y + f.dy);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawCoverArt() {
+  if (!artCache.has(LEVELS[0].id)) ensureArt(LEVELS[0]);
+  const art = artCache.get(1);
+  if (!art || !coverSpecimenEl || coverEl.hidden) return;
+  const r = rectOf(coverSpecimenEl);
+  if (r.w < 8 || r.h < 8) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const labelH = 22;
+  const availW = r.w - 12;
+  const availH = r.h - labelH - 10;
+  const src = art.front;
+  const sc = Math.min(availW / src.width, availH / src.height);
+  const w = src.width * sc, h = src.height * sc;
+  const cx = r.x + r.w / 2, cy = r.y + (r.h - labelH) / 2;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.012);
+  ctx.shadowColor = 'rgba(40,24,12,.42)';
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetX = 2;
+  ctx.shadowOffsetY = 8;
+  ctx.fillStyle = '#f4e6c8';
+  ctx.fillRect(-w / 2 - 5, -h / 2 - 5, w + 10, h + 10);
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.drawImage(src, -w / 2, -h / 2, w, h);
+  ctx.strokeStyle = 'rgba(58,39,24,.38)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(-w / 2 - 5.5, -h / 2 - 5.5, w + 11, h + 11);
+  ctx.strokeStyle = 'rgba(255,248,232,.4)';
+  ctx.strokeRect(-w / 2 - 2.5, -h / 2 - 2.5, w + 5, h + 5);
+  ctx.restore();
+}
+
+function drawTurn() {
+  if (!turn) return;
+  const L = layout;
+  const u = clamp(turn.t / turn.dur, 0, 1);
+  const e = easeInOut(u);
+  const x = lerp(L.pageX - L.pageW * 0.55, L.pageX + L.pageW * 1.15, e);
+  const band = L.pageW * 0.42;
+  ctx.save();
+  ctx.clip(polyPath(L.pageOutline));
+  const g = ctx.createLinearGradient(x - band, 0, x + band, 0);
+  g.addColorStop(0, 'rgba(58,39,24,0)');
+  g.addColorStop(0.36, 'rgba(58,39,24,.10)');
+  g.addColorStop(0.5, 'rgba(58,39,24,.22)');
+  g.addColorStop(0.64, 'rgba(58,39,24,.09)');
+  g.addColorStop(1, 'rgba(58,39,24,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(L.pageX, L.pageY, L.pageW, L.pageH);
+  ctx.strokeStyle = 'rgba(255,246,222,.36)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + band * 0.3, L.pageY + 6);
+  ctx.lineTo(x + band * 0.3, L.pageY + L.pageH - 6);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawSurround(W, H) {
@@ -922,11 +1297,13 @@ function drawPage() {
   const ink = '#3a2718';
   drawPageFurniture(L, ink);
 
-  ctx.fillStyle = P2.rgba(ink, 0.28);
-  ctx.font = `italic 9px Georgia, 'Times New Roman', serif`;
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(`No. ${currentLevel.page}`, L.pageX + L.pageW - 28, L.pageY + L.pageH - 18);
+  if (!L.mobile) {
+    ctx.fillStyle = P2.rgba(ink, 0.5);
+    ctx.font = `italic 11.5px Georgia, 'Times New Roman', serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`No. ${currentLevel.page}`, L.pageX + L.pageW - 28, L.pageY + L.pageH - 18);
+  }
   ctx.restore();
 
   // the page's cut edge and the torn deckle fringe
@@ -964,13 +1341,30 @@ function wrapLines(text, maxW, font) {
 }
 
 function drawPageFurniture(L, ink) {
+  const mobile = L.mobile;
   // a small running foot, clear of the tools at the page's bottom edge
   ctx.save();
-  ctx.fillStyle = P2.rgba(ink, 0.45);
-  ctx.font = `600 9.5px Georgia, 'Times New Roman', serif`;
+  if (mobile) {
+    // a printed plate rule under the one-line mobile header
+    const cx = L.pageX + L.pageW / 2;
+    const y = L.winRect.y - 7;
+    ctx.strokeStyle = P2.rgba(ink, 0.24);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - 52, y);
+    ctx.lineTo(cx + 52, y);
+    ctx.stroke();
+    ctx.fillStyle = P2.rgba(ink, 0.3);
+    ctx.beginPath();
+    ctx.moveTo(cx, y - 3); ctx.lineTo(cx + 3, y);
+    ctx.lineTo(cx, y + 3); ctx.lineTo(cx - 3, y);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = P2.rgba(ink, 0.55);
+  ctx.font = `600 11.5px Georgia, 'Times New Roman', serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  if (ctx.letterSpacing !== undefined) ctx.letterSpacing = '1.5px';
+  if (ctx.letterSpacing !== undefined) ctx.letterSpacing = mobile ? '1.2px' : '1.5px';
   ctx.fillText('A MENAGERIE OF FOLDED SPECIMENS', L.pageX + L.pageW / 2, L.foot.y);
   if (ctx.letterSpacing !== undefined) ctx.letterSpacing = '0px';
   ctx.restore();
@@ -980,13 +1374,13 @@ function drawPageFurniture(L, ink) {
   if (n && n.h >= 20 && n.text) {
     const hasCap = n.h >= 34;
     const capH = hasCap ? 15 : 0;
-    let font = `italic 10px Georgia, 'Times New Roman', serif`;
-    let lead = 11.5;
+    let font = `italic ${mobile ? 11.5 : 12}px Georgia, 'Times New Roman', serif`;
+    let lead = mobile ? 13 : 14;
     let lines = wrapLines(n.text, n.w, font);
     let need = capH + lines.length * lead;
     if (need > n.h) {
-      font = `italic 9px Georgia, 'Times New Roman', serif`;
-      lead = 10;
+      // 11.5px is the floor; shorten the leading before the type
+      lead = mobile ? 12.5 : 13;
       lines = wrapLines(n.text, n.w, font);
       need = capH + lines.length * lead;
     }
@@ -995,27 +1389,27 @@ function drawPageFurniture(L, ink) {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
       if (hasCap) {
-        ctx.fillStyle = P2.rgba(ink, 0.34);
-        ctx.font = `600 8px Georgia, 'Times New Roman', serif`;
+        ctx.fillStyle = P2.rgba(ink, 0.44);
+        ctx.font = `600 11.5px Georgia, 'Times New Roman', serif`;
         if (ctx.letterSpacing !== undefined) ctx.letterSpacing = '1.2px';
-        ctx.fillText('NOTES ON THE PLATE', n.x, n.y + 8);
+        ctx.fillText('NOTES ON THE PLATE', n.x, n.y + 9);
         const capW = ctx.measureText('NOTES ON THE PLATE').width;
         if (ctx.letterSpacing !== undefined) ctx.letterSpacing = '0px';
-        ctx.strokeStyle = P2.rgba(ink, 0.16);
+        ctx.strokeStyle = P2.rgba(ink, 0.2);
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(n.x + capW + 9, n.y + 4.5);
-        ctx.lineTo(n.x + capW + 31, n.y + 4.5);
+        ctx.moveTo(n.x + capW + 9, n.y + 5);
+        ctx.lineTo(n.x + capW + 31, n.y + 5);
         ctx.stroke();
       }
       ctx.font = font;
-      ctx.fillStyle = P2.rgba(ink, 0.33);
-      let baseline = n.y + (hasCap ? 23 : 9);
+      ctx.fillStyle = P2.rgba(ink, 0.55);
+      let baseline = n.y + (hasCap ? 24 : 10);
       for (const line of lines) {
         if (baseline > n.y + n.h) break;
         ctx.fillText(line, n.x, baseline);
         const tw = Math.min(n.w, ctx.measureText(line).width + 8);
-        ctx.strokeStyle = P2.rgba(ink, 0.13);
+        ctx.strokeStyle = P2.rgba(ink, 0.16);
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(n.x - 1, baseline + 2.5);
@@ -1061,76 +1455,98 @@ function drawSpecimen() {
   ctx.fillStyle = pagePattern || '#efe0c2';
   ctx.fillRect(s.x, s.y, s.w, s.h);
   // the page's deckled edge, kept square like a bound plate
-  ctx.strokeStyle = P2.rgba(ink, 0.36);
+  ctx.strokeStyle = P2.rgba(ink, 0.42);
   ctx.lineWidth = 1;
   ctx.strokeRect(s.x + 0.5, s.y + 0.5, s.w - 1, s.h - 1);
-  ctx.strokeStyle = P2.rgba(ink, 0.13);
+  ctx.strokeStyle = P2.rgba(ink, 0.14);
   ctx.strokeRect(s.x + 4.5, s.y + 4.5, s.w - 9, s.h - 9);
 
   // heading and rule
-  ctx.fillStyle = P2.rgba(ink, 0.52);
-  ctx.font = `600 8.5px Georgia, 'Times New Roman', serif`;
+  ctx.fillStyle = P2.rgba(ink, 0.64);
+  ctx.font = `600 11.5px Georgia, 'Times New Roman', serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   if (ctx.letterSpacing !== undefined) ctx.letterSpacing = '1.9px';
-  ctx.fillText('SPECIMENS', cx, s.y + 19);
+  ctx.fillText('SPECIMENS', cx, s.y + 20);
   if (ctx.letterSpacing !== undefined) ctx.letterSpacing = '0px';
-  ctx.strokeStyle = P2.rgba(ink, 0.22);
+  ctx.strokeStyle = P2.rgba(ink, 0.24);
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(s.x + 13, s.y + 28.5);
-  ctx.lineTo(s.x + s.w - 13, s.y + 28.5);
+  ctx.moveTo(s.x + 13, s.y + 30.5);
+  ctx.lineTo(s.x + s.w - 13, s.y + 30.5);
   ctx.stroke();
-  ctx.fillStyle = P2.rgba(ink, 0.28);
+  ctx.fillStyle = P2.rgba(ink, 0.3);
   ctx.beginPath();
-  ctx.moveTo(cx, s.y + 25.5); ctx.lineTo(cx + 3, s.y + 28.5);
-  ctx.lineTo(cx, s.y + 31.5); ctx.lineTo(cx - 3, s.y + 28.5);
+  ctx.moveTo(cx, s.y + 27); ctx.lineTo(cx + 3.5, s.y + 30.5);
+  ctx.lineTo(cx, s.y + 34); ctx.lineTo(cx - 3.5, s.y + 30.5);
   ctx.closePath(); ctx.fill();
 
-  // three framed empty slots
+  // ten framed recesses: two columns of five
+  const cols = 2, rows = 5, gap = 7;
+  const padX = 10;
   const top = s.y + 40;
-  const bottom = s.y + s.h - 52;
-  const gap = 9;
-  const slotH = Math.max(18, (bottom - top - gap * 2) / 3);
-  const sx = s.x + 10;
-  const sw = s.w - 20;
-  const romans = ['I', 'II', 'III'];
-  for (let i = 0; i < 3; i++) {
-    const sy = top + i * (slotH + gap);
+  const bottom = s.y + s.h - 30;
+  const sw = (s.w - padX * 2 - gap) / cols;
+  const sh = Math.max(18, (bottom - top - gap * (rows - 1)) / rows);
+  for (let i = 0; i < LEVELS.length; i++) {
+    const col = i % cols, row = Math.floor(i / cols);
+    const x = s.x + padX + col * (sw + gap);
+    const y = top + row * (sh + gap);
+    const lv = LEVELS[i];
     ctx.fillStyle = 'rgba(255,247,226,.16)';
-    ctx.fillRect(sx, sy, sw, slotH);
+    ctx.fillRect(x, y, sw, sh);
     ctx.strokeStyle = P2.rgba(ink, 0.26);
     ctx.lineWidth = 1;
-    ctx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, slotH - 1);
+    ctx.strokeRect(x + 0.5, y + 0.5, sw - 1, sh - 1);
     ctx.strokeStyle = P2.rgba(ink, 0.1);
-    ctx.strokeRect(sx + 3.5, sy + 3.5, sw - 7, slotH - 7);
+    ctx.strokeRect(x + 3.5, y + 3.5, sw - 7, sh - 7);
     // the recess: dark on the upper-left, pale on the lower-right
-    ctx.strokeStyle = 'rgba(74,48,28,.14)';
+    ctx.strokeStyle = 'rgba(74,48,28,.16)';
     ctx.beginPath();
-    ctx.moveTo(sx + 1, sy + slotH - 1); ctx.lineTo(sx + 1, sy + 1); ctx.lineTo(sx + sw - 1, sy + 1);
+    ctx.moveTo(x + 1, y + sh - 1); ctx.lineTo(x + 1, y + 1); ctx.lineTo(x + sw - 1, y + 1);
     ctx.stroke();
     ctx.strokeStyle = 'rgba(255,247,226,.34)';
     ctx.beginPath();
-    ctx.moveTo(sx + 1, sy + slotH - 1); ctx.lineTo(sx + sw - 1, sy + slotH - 1); ctx.lineTo(sx + sw - 1, sy + 1);
+    ctx.moveTo(x + 1, y + sh - 1); ctx.lineTo(x + sw - 1, y + sh - 1); ctx.lineTo(x + sw - 1, y + 1);
     ctx.stroke();
-    ctx.fillStyle = P2.rgba(ink, 0.4);
-    ctx.font = `italic 8px Georgia, 'Times New Roman', serif`;
+    ctx.fillStyle = P2.rgba(ink, 0.52);
+    ctx.font = `italic 11.5px Georgia, 'Times New Roman', serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(romans[i], sx + 6, sy + 10);
-    ctx.fillStyle = P2.rgba(ink, 0.15);
-    ctx.font = `italic 10px Georgia, 'Times New Roman', serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText('—', sx + sw / 2, sy + slotH / 2 + 4);
+    ctx.fillText(lv.page, x + 5.5, y + 9);
+
+    if (solvedPages.has(lv.id)) {
+      const tb = G.bbox(lv.target);
+      const sc = Math.min((sw - 16) / tb.w, (sh - 25) / tb.h);
+      ctx.beginPath();
+      lv.target.forEach(([px, py], k) => {
+        const X = x + sw / 2 + (px - tb.cx) * sc;
+        const Y = y + sh / 2 + 3 - (py - tb.cy) * sc;
+        if (k) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+      });
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(95,107,58,.28)';
+      ctx.fill();
+      ctx.strokeStyle = P2.rgba(ink, 0.58);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = P2.rgba(ink, 0.15);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + sw / 2 - 5, y + sh / 2 + 4);
+      ctx.lineTo(x + sw / 2 + 5, y + sh / 2 + 4);
+      ctx.stroke();
+    }
   }
 
-  // the note at the foot of the specimen page
-  ctx.fillStyle = P2.rgba(ink, 0.44);
-  ctx.font = `italic 9px Georgia, 'Times New Roman', serif`;
+  // the count at the foot of the specimen page
+  const done = solvedPages.size;
+  ctx.fillStyle = P2.rgba(ink, 0.55);
+  ctx.font = `italic 11.5px Georgia, 'Times New Roman', serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('filled as the plates', cx, s.y + s.h - 31);
-  ctx.fillText('are folded', cx, s.y + s.h - 19);
+  ctx.fillText(done >= LEVELS.length ? 'ten of ten folded' : `${done} of ${LEVELS.length} folded`, cx, s.y + s.h - 15);
   ctx.restore();
 }
 
@@ -1419,8 +1835,8 @@ function drawSeatMarks() {
   if (a <= 0) return;
   const L = layout;
   const ink = '#3a2718';
-  const cx = L.pageX + L.pageW - 30 - 23;
-  const cy = L.pageY + L.pageH - 158;
+  const cx = L.pageX + L.pageW - 58;
+  const cy = L.pageY + L.pageH - (L.mobile ? 166 : 158);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.save();
   ctx.translate(cx, cy);
@@ -1428,17 +1844,17 @@ function drawSeatMarks() {
   ctx.globalAlpha = a;
   ctx.lineCap = 'round';
   ctx.strokeStyle = P2.rgba(ink, 0.75);
-  ctx.lineWidth = 1.15;
+  ctx.lineWidth = 1.2;
   ctx.beginPath();
-  ctx.ellipse(0, 0, 23, 11, 0.015, 0, TAU);
+  ctx.ellipse(0, 0, 30, 15, 0.015, 0, TAU);
   ctx.stroke();
   ctx.strokeStyle = P2.rgba(ink, 0.55);
   ctx.lineWidth = 0.8;
   ctx.beginPath();
-  ctx.ellipse(0.3, -0.2, 20.4, 8.7, 0.015, 0, TAU);
+  ctx.ellipse(0.3, -0.2, 26.6, 12.2, 0.015, 0, TAU);
   ctx.stroke();
   ctx.fillStyle = P2.rgba(ink, 0.78);
-  ctx.font = `600 8px Georgia, 'Times New Roman', serif`;
+  ctx.font = `600 11.5px Georgia, 'Times New Roman', serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   if (ctx.letterSpacing !== undefined) ctx.letterSpacing = '0.8px';
@@ -1503,7 +1919,7 @@ function findCreaseAt(cssX, cssY) {
 
 function onPointerDown(e) {
   if (e.button !== 0 && e.pointerType === 'mouse') return;
-  if (!started) return;
+  if (!started || screen !== 'play') return;
   sfx?.unlock();
   if (hintFaded === false) { hintFaded = true; hintEl.classList.add('faded'); }
   if (anim || (seat && !seat.done) || solved) return;
@@ -1606,12 +2022,16 @@ window.addEventListener('resize', () => {
   if (anim && (anim.mode === 'drag')) { releaseDrag(); }
   resizeCanvas();
   computeLayout();
+  applyScreenVisibility();
+  applyScreenLayout();
   render();
 }, { passive: true });
 if (window.visualViewport) window.visualViewport.addEventListener('resize', () => {
   if (anim && (anim.mode === 'drag')) { releaseDrag(); }
   resizeCanvas();
   computeLayout();
+  applyScreenVisibility();
+  applyScreenLayout();
   render();
 }, { passive: true });
 
@@ -1619,21 +2039,31 @@ if (window.visualViewport) window.visualViewport.addEventListener('resize', () =
 function unlockAudio() { sfx?.unlock(); }
 unfoldBtn.addEventListener('click', () => {
   unlockAudio();
+  if (screen !== 'play') return;
   if (beginUnfold()) { manual = false; }
 });
 restartBtn.addEventListener('click', () => {
   unlockAudio();
+  if (screen !== 'play') return;
   resetLevel();
   manual = false;
   render();
 });
 nextBtn.addEventListener('click', () => {
   unlockAudio();
-  const next = levelIndex + 1 >= LEVELS.length ? 1 : levelIndex + 2;
-  loadLevel(next);
+  if (screen !== 'play') return;
+  if (levelIndex >= LEVELS.length - 1) {
+    setScreen('end');
+    return;
+  }
+  loadLevel(levelIndex + 2);
+  startTurn();
   manual = false;
   render();
 });
+openBtn.addEventListener('click', openBook);
+againBtn.addEventListener('click', startAgain);
+toCoverBtn.addEventListener('click', goCover);
 
 // ---------------------------------------------------------------------------------------------------------------
 // clock
@@ -1696,6 +2126,10 @@ function state() {
     anim: anim ? { kind: anim.kind, id: anim.id, theta: +anim.theta.toFixed(4), progress: +(anim.theta / PI).toFixed(4), mode: anim.mode } : null,
     seated: !!(solved && seat && seat.done),
     hint: currentLevel.hint,
+    screen,
+    complete,
+    solvedPages: solvedPages.size,
+    totalFolds: [...plateFolds.values()].reduce((a, b) => a + b, 0),
   };
 }
 
@@ -1801,6 +2235,7 @@ function solveHook() {
   lastEval = G.evaluate(currentLevel, folds);
   solved = !!lastEval.solved;
   if (solved) {
+    markSolved();
     seat = { t: 0.95, dur: 0.95, done: true, stampT: 0.25, stampDone: true };
     hintEl.classList.add('faded');
   }
@@ -1838,6 +2273,8 @@ window.__crease = {
   setLevel: setLevelHook,
   target: () => currentLevel.target.map((p) => [p[0], p[1]]),
   solve: solveHook,
+  setScreen: (s) => { setScreen(s); manual = true; render(); return state(); },
+  finish: () => { const st = finishHook(); manual = true; render(); return st; },
   layout: null,
 };
 window.__papercraft = {

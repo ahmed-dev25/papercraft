@@ -2,5 +2,8 @@
   "name": "crease",
   "private": true,
   "type": "module",
-  "description": "crease — a paper folding puzzle (phase 1)"
+  "description": "crease — a book of folded specimens (ten plates, no timer)",
+  "scripts": {
+    "solve": "node solve.js"
+  }
 }
